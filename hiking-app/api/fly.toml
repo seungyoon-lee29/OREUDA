@@ -1,0 +1,22 @@
+# ADR-003: Fly.io nrt (서울 리전 없음 — 도쿄가 최단)
+app = "hiking-api-v0"
+primary_region = "nrt"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  # DB를 건드리지 않는 헬스체크 — Supabase 무료 티어 pause가 앱 재시작 루프를 만들지 않도록
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/v1/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

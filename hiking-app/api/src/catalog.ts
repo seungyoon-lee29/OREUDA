@@ -22,6 +22,12 @@ const COURSE_SELECT = `
 export class CatalogController {
   constructor(@InjectDataSource() private db: DataSource) {}
 
+  // Fly 헬스체크용 — DB를 건드리지 않는다 (Supabase pause가 재시작 루프를 만들지 않도록)
+  @Get('healthz')
+  healthz() {
+    return { ok: true };
+  }
+
   // public read (01 §7 게스트 전환 대비). zoom: v0 서버는 받되 무시한다(02 §5.1 계약).
   @Get('courses')
   async courses(@Query('bbox') bbox?: string, @Query('zoom') _zoom?: string) {
