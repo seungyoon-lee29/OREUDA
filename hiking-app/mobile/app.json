@@ -44,7 +44,7 @@
       [
         "@mj-studio/react-native-naver-map",
         {
-          "client_id": "REPLACE_WITH_NCP_CLIENT_ID"
+          "client_id": "3mohcujert"
         }
       ],
       [
