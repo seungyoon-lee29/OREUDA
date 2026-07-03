@@ -12,6 +12,7 @@
   - 2ad5f11 빈 상태 시작 코스 추천 카드 (rank15)
   - a432e60 미완등 코스선 가독성 (rank5 런타임 폴리시)
   - ad6df0c 디자인 비평 반영 (용어 통일·거리 포맷·대비·null 카피·top-void)
+  - **[Pass 2 디자인 100x]** 3e07412 UI 토큰 모듈(theme.ts) / 2e529cf 완등 성공 시퀀스 프리미엄화(capture) / 8dd60dc 지도 마커·추천카드·바텀시트 + 시트 CTA 탭바 클리어런스(index/colored) / ab67b38 기록 스탯 히어로화 + 인증됨 칩(records)
 
 ## 캡처 아웃박스 계약 (rank1 이후 — 건드리기 전 필독)
 - insertCapture(state='awaiting_course', courseId=null) = 판정 통과 즉시 durable = 성공 시점(04 §4.1).
@@ -27,14 +28,22 @@ iOS 시뮬(test1234 로그인)에서 딥링크(`mobile:///capture?mountainId=`)+
 - **햅틱**: iOS 시뮬은 Taptic 무지원이라 미검증. 코드 정확 + `.catch` 가드 → **실기기에서만 확인 가능**. (재빌드 불필요 판단.)
 - **테스트 정리**: test1234 완등 8건(자동테스트 아티팩트, courseId=null 6 + 옛골/서울대입구 2) DB 삭제 완료 — 계정 빈 상태.
 
+## Pass 2 (디자인 100x) 완료 — 2026-07-03 (/polish 2)
+병렬 백그라운드 에이전트 3(파일 소유권 분할: capture / index+colored / records, 공용 `src/lib/theme.ts` 토큰 SSOT를 먼저 깔고 각자 import)로 표현 계층만 다듬음. 판정·아웃박스·에러봉투·쿼리·Okabe-Ito 팔레트 불변, 신규 네이티브 의존성 0(reanimated/haptics는 babel-preset-expo 57 자동 링크). 시뮬 눈 검증 = `scratchpad/p2-*.png` 9장.
+- **감정 피크(최우선) ✓**: captured에 successSoft 헤일로+success 원판+흰 ✓ 엠블럼, reanimated 페이드+스케일 진입 + 체크 스프링 팝, "N좌 완등" 성공 그린 pill 칩. select_course 좌측정렬 헤더 + nearest brandSoft 카드 + '가장 가까움' 브랜드 pill.
+- **저줌 마커 ✓(부분)**: `mountainMarkerStyle` SSOT, 캡션 `haloColor` 흰 외곽선으로 basemap 위 가독. 정복 green✓/미완등 gray 색+아이콘+텍스트 이중인코딩. **한계**: @mj-studio naver-map 2.9 캡션엔 pill/배경 prop 없음(halo가 유일). 진짜 pill/커스텀 형태는 PNG 에셋+네이티브 재빌드 필요 → 보류.
+- **기록 스탯 히어로 ✓**: brandSoft 히어로 카드(완등한 산 52px tabular-nums 주인공), 완등 카드 3-tier + '인증됨' 성공 칩(코스/‌null코스/‌재인증 3변형 검증).
+- **토큰 통일 ✓**: theme.ts(C/R/SP/CTA_H). CTA 파랑 #208AEF→#0A66C2 딥블루로 수렴.
+- **타이포/카피 ✓**: 위계 700/600/500/400, priming '딱 한 번', 추천카드 '탭해서' 제거, oor 거리별 분기.
+- **런타임 결함 수정**: 바텀시트 '정상에서 인증하기' CTA가 플로팅 NativeTabs에 가려짐 → 시트 contentContainerStyle paddingBottom 탭바 클리어런스(8dd60dc). 마커 캡션 '미정복'→'미완등' 회귀 수정(에이전트 도입 → 되돌림).
+- **검증 방식**: 탭 자동화 없음(idb 없음/접근성 막힘) → 탭-게이트 화면(captured/바텀시트/저줌마커)은 **throwaway 강제-상태 편집→스크린샷→즉시 복구**로 자율 검증. captured 카운터/records 카드용 쇼케이스 완등은 Supabase execute_sql로 삽입 후 삭제(계정 클린).
+- **미검증(실기기 전용)**: 햅틱 체감, reanimated 진입 애니의 실제 부드러움(스샷은 정착 상태만), 소형기기(SE)에서 captured 히어로+2CTA 세로 여유.
+
 ## 다음 할 것
-### /polish 2 (디자인 100x) 백로그 — 5렌즈 비평의 pass-2 항목
-- **감정 피크 승격(최우선)**: select_course/captured를 성공 축하 톤으로 — 히어로 배경/그라데이션, 진입 스케일업+햅틱, 브랜드 컬러. 완등 성공이 앱의 유일한 자랑 순간인데 지금은 라디오 폼처럼 밋밋.
-- **저줌 산마커 재디자인**: 완등=채운 브랜드색+체크 / 미완등=회색 아웃라인(색+형태 이중), 라벨 흰 halo/pill(basemap 라벨과 충돌), 현재위치 마커와 형태 분리(현재 둘 다 초록 물방울).
-- **기록 스탯 히어로화** + 완등 카드 색 accent/체크뱃지, '인증됨' 성공 그린 칩.
-- **토큰 통일**: CTA 규격(풀폭/높이/파랑 #0A66C2), 카드 radius(16), 탭 비활성 tint(#8E8E93), 보조텍스트 회색.
-- **타이포**: 코스행 위계 700/500/400, priming lineHeight 1.45, tabular-nums.
-- **카피**: priming '1점'→'딱 한 번', 추천카드 '탭해서' 제거, 거리밖 거리별 분기 카피.
+### /polish 2 잔여 (대부분 위 Pass 2에서 착지 — 남은 것만)
+- **전환/모션 프레임 감사**: reanimated captured 진입은 넣었으나, 화면 녹화 프레임-투-프레임 감사는 미실시. pending 점선 대시 간격, 줌 11.5 경계 마커(라인↔산마커) 전환 페이드, 바텀시트 스프링을 실기기 녹화로 점검. (스샷은 정착 프레임만 잡음 → 모션은 device 필요.)
+- **저줌 마커 진짜 pill/커스텀 형태**: 현재 halo가 상한(lib 캡션 한계). pill 배경/채운-vs-아웃라인 형태 이중코딩은 커스텀 PNG 에셋 + dev client 재빌드가 있어야 가능 → 별도 작업으로.
+- **소형기기(SE) captured 세로 여유** 확인(히어로+칩+2CTA), **탭 비활성 tint** NativeTabs 네이티브라 JS로 미적용(필요 시 네이티브 설정).
 ### 백엔드/인프라 (미적용)
 - **rank9 Sentry**(DSN 필요·네이티브 재빌드 → 블록) / **rank13 DB sslmode verify-full**(CA 번들·verify 없이 바꾸면 Fly 끊김 → 문서화 권고) / **rank18 throttle**(api-design 'IP 기준' 확정 → 문서화로 종결).
 
