@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
 import { cacheCourses, flush, getCachedCourses, insertDraft } from '@/lib/outbox';
-import { DIFFICULTY_COLOR } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL } from '@/lib/colored';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
 // ponytail: 단일 화면 세션 상태라 Zustand 대신 useState — 화면 밖에서 구독할 소비자가 없다
@@ -153,7 +153,10 @@ export default function Capture() {
               style={[s.courseBtn, c.id === state.nearest.id && s.courseBtnNearest]}
               onPress={() => confirmCourse(c.id, c.name, state.captured)}
             >
-              <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
+              <View style={s.difficultyBadge}>
+                <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
+                <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
+              </View>
               <Text style={s.courseBtnText}>
                 {c.name}
                 {c.id === state.nearest.id ? ' (가장 가까움)' : ''}
@@ -189,18 +192,21 @@ function Center({ title, body, children }: { title: string; body?: string; child
 
 const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: '#fff' },
-  close: { position: 'absolute', top: 56, right: 20, zIndex: 1, padding: 8 },
-  closeText: { fontSize: 22, color: '#666' },
+  close: { position: 'absolute', top: 48, right: 12, zIndex: 1, padding: 16 },
+  closeText: { fontSize: 24, color: '#666' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 },
   bigTitle: { fontSize: 26, fontWeight: '700', textAlign: 'center' },
   body: { fontSize: 15, color: '#666', textAlign: 'center', lineHeight: 22 },
-  btn: { backgroundColor: '#208AEF', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28 },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  // 05 §5: 야외/장갑 대응 최소 56dp
+  btn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 56, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   selectWrap: { flex: 1, justifyContent: 'center', padding: 24, gap: 10 },
   courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: '#F5F5F5', borderRadius: 12 },
   courseBtnNearest: { borderWidth: 2, borderColor: '#208AEF' },
-  courseBtnText: { fontSize: 16, fontWeight: '500' },
+  courseBtnText: { fontSize: 16, fontWeight: '500', flex: 1 },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  laterBtn: { alignItems: 'center', padding: 12 },
-  laterText: { color: '#888' },
+  laterBtn: { alignItems: 'center', padding: 16, minHeight: 48, justifyContent: 'center' },
+  laterText: { color: '#666', fontWeight: '500' },
 });

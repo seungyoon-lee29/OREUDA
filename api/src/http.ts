@@ -35,7 +35,12 @@ export class ErrorFilter implements ExceptionFilter {
           ? body.message.join('; ')
           : (body.message ?? 'error');
     if (status === 429) res.header('Retry-After', '60');
-    if (status >= 500) console.error(e);
+    if (status >= 500) {
+      // 좌표 스크럽 (07 §1: 위치 좌표 미전송) — QueryFailedError.parameters엔 lng/lat가 들어가므로
+      // 전체 에러 객체 대신 name/message/stack만 로깅한다.
+      const anyE = e as any;
+      console.error('[500]', anyE?.name, anyE?.message, anyE?.stack);
+    }
     res.status(status).json({ error: { code, message } });
   }
 }

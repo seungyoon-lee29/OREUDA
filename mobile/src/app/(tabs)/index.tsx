@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
 import { cacheCourses } from '@/lib/outbox';
-import { DIFFICULTY_COLOR, UNCLIMBED_COLOR, usePendingSet, useVerifiedSet } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, UNCLIMBED_COLOR, usePendingSet, useVerifiedSet } from '@/lib/colored';
 
 // 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
 const LINE_ZOOM_IN = 11.5;
@@ -114,7 +114,10 @@ export default function MapScreen() {
               </Text>
               {mountain.courses.map((c) => (
                 <View key={c.id} style={s.courseRow}>
-                  <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
+                  <View style={s.difficultyBadge}>
+                    <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
+                    <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
+                  </View>
                   <Text style={s.courseName}>{c.name}</Text>
                   <Text style={s.courseMeta}>
                     {c.distanceM ? `${(c.distanceM / 1000).toFixed(1)}km` : ''}{' '}
@@ -142,10 +145,13 @@ const s = StyleSheet.create({
   sheet: { padding: 20, gap: 8 },
   name: { fontSize: 24, fontWeight: '700' },
   meta: { color: '#666' },
-  courseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  courseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 10, height: 10, borderRadius: 5 },
+  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
   courseName: { fontSize: 16, flex: 1 },
-  courseMeta: { color: '#888', fontSize: 13 },
-  captureBtn: { backgroundColor: '#208AEF', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 12 },
-  captureBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  courseMeta: { color: '#666', fontSize: 13, fontWeight: '500' },
+  // 05 §5: 장갑 대응 인증 CTA 64dp
+  captureBtn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 64, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
+  captureBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
 });

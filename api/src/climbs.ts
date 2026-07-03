@@ -202,7 +202,7 @@ export class ClimbsController {
        from climbs cl
        left join courses co on co.id = cl.course_id
        left join mountains m on m.id = co.mountain_id
-       where cl.user_id = $1 and cl.deleted_at is null
+       where cl.user_id = $1 and cl.deleted_at is null and cl.status = 'verified'
        order by cl.climbed_on desc, cl.submitted_at desc`,
       [userId],
     );

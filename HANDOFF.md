@@ -2,7 +2,8 @@
 
 ## 지금 상태
 - 백엔드: **https://hiking-api-v0.fly.dev** 배포+스모크 통과
-- 앱: **iOS 시뮬레이터에서 실행 성공** — 로그인 화면까지 렌더 확인. RN/expo-router/gesture-handler 정상.
+- 앱: **iOS 시뮬레이터 전체 검증 통과 ✅** — 가입·로그인(백엔드 연결) + 네이버 지도 렌더(NCP 키 3mohcujert) 확인. RN/expo-router/gesture-handler 정상.
+- 남은 스팟체크(선택): 코스 폴리라인 8개 / 산 마커 바텀시트 / 인증 위저드(Features>Location 위치 위조) / 오프라인 캐시
 - 폴더 구조 총정리 완료: 이중 중첩 제거(api/mobile/docs/supabase 루트로), 루트 CLAUDE.md + .claude/ 전체 메뉴(rules/skills/commands/agents/hooks/output-styles) 실내용으로 채움, .mcp.json/.gitignore/.worktreeinclude 추가.
 - **미커밋** — 아래 "커밋" 참고.
 

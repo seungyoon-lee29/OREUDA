@@ -110,11 +110,10 @@ export async function flush() {
       emit();
       try {
         const res = await api('/climbs', { method: 'POST', body: d.payload_json });
-        const parsed = ClimbResponseSchema.parse(res);
-        db.runSync(
-          "UPDATE climb_drafts SET state = 'confirmed', server_result_json = ? WHERE local_uuid = ?",
-          [JSON.stringify(parsed), d.local_uuid],
-        );
+        ClimbResponseSchema.parse(res); // 계약 검증(파싱 실패=5xx 취급으로 재큐)
+        // 확정된 초안은 삭제 — 완등은 me/climbs(verified SSOT)로 이관되므로 보관 불필요.
+        // ponytail: 서버 결과 로컬 보관 안 함(무한 누적 방지). 필요해지면 confirmed 상태 부활.
+        db.runSync('DELETE FROM climb_drafts WHERE local_uuid = ?', [d.local_uuid]);
       } catch (e) {
         if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
           // 4xx 종결 → failed_permanent (04 §4.2)

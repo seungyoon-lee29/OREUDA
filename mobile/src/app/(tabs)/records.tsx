@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { logout } from '@/lib/api';
-import { useMeClimbs } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
 
@@ -17,7 +17,7 @@ function useDrafts(): Draft[] {
 
 export default function Records() {
   const drafts = useDrafts();
-  const { data } = useMeClimbs();
+  const { data, isLoading, isError, refetch } = useMeClimbs();
   const setAuthed = useSession((s) => s.setAuthed);
 
   return (
@@ -61,15 +61,33 @@ export default function Records() {
         contentContainerStyle={{ padding: 16, gap: 8 }}
         renderItem={({ item }) => (
           <View style={s.row}>
-            <Text style={s.rowTitle}>
-              {item.mountain?.name ?? '(산 미지정)'} · {item.course?.name ?? '코스 미선택'}
-            </Text>
+            <View style={s.rowHeader}>
+              {item.course?.difficulty && (
+                <View style={s.difficultyBadge}>
+                  <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[item.course.difficulty] }]} />
+                  <Text style={s.difficultyText}>{DIFFICULTY_LABEL[item.course.difficulty]}</Text>
+                </View>
+              )}
+              <Text style={s.rowTitle}>
+                {item.mountain?.name ?? '(산 미지정)'} · {item.course?.name ?? '코스 미선택'}
+              </Text>
+            </View>
             <Text style={s.rowMeta}>
               {item.climbedOn} · {item.status === 'verified' ? '인증됨' : '이미 인증된 코스'}
             </Text>
           </View>
         )}
-        ListEmptyComponent={<Text style={s.empty}>아직 기록이 없어요. 첫 산을 정복해보세요!</Text>}
+        ListEmptyComponent={
+          isLoading ? (
+            <ActivityIndicator style={{ marginTop: 40 }} />
+          ) : isError ? (
+            <TouchableOpacity style={s.errorBox} onPress={() => refetch()}>
+              <Text style={s.errorText}>기록을 불러오지 못했어요. 눌러서 다시 시도</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={s.empty}>아직 기록이 없어요. 첫 산을 정복해보세요!</Text>
+          )
+        }
       />
     </SafeAreaView>
   );
@@ -78,16 +96,22 @@ export default function Records() {
 const s = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
   title: { fontSize: 24, fontWeight: '700' },
-  logout: { color: '#888' },
+  logout: { color: '#666', fontWeight: '500' },
   counters: { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingBottom: 8 },
   counter: { fontSize: 15, fontWeight: '600', color: '#208AEF' },
   pendingBox: { margin: 16, padding: 12, backgroundColor: '#FFF8E1', borderRadius: 12, gap: 8 },
   pendingTitle: { fontWeight: '600' },
   pendingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pendingText: { fontSize: 13, color: '#555', flex: 1 },
-  deleteBtn: { color: '#d32f2f', fontSize: 13, paddingLeft: 8 },
+  deleteBtn: { color: '#C43E00', fontSize: 13, paddingLeft: 8, fontWeight: '600' },
   row: { padding: 14, backgroundColor: '#F5F5F5', borderRadius: 12 },
-  rowTitle: { fontSize: 16, fontWeight: '600' },
-  rowMeta: { color: '#777', marginTop: 2, fontSize: 13 },
-  empty: { textAlign: 'center', color: '#999', marginTop: 40 },
+  rowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  rowTitle: { fontSize: 16, fontWeight: '600', flex: 1 },
+  rowMeta: { color: '#666', marginTop: 4, fontSize: 13, fontWeight: '500' },
+  empty: { textAlign: 'center', color: '#666', marginTop: 40 },
+  errorBox: { marginTop: 40, alignItems: 'center', padding: 16 },
+  errorText: { color: '#C43E00', fontWeight: '500' },
 });
