@@ -7,19 +7,23 @@ import {
   NaverMapPolylineOverlay,
 } from '@mj-studio/react-native-naver-map';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
 import { cacheCourses } from '@/lib/outbox';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, lineStyle, usePendingSet, useVerifiedSet } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, lineStyle, useMeClimbs, usePendingSet, useVerifiedSet } from '@/lib/colored';
 
 // 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
 const LINE_ZOOM_IN = 11.5;
 const LINE_ZOOM_OUT = 10.5;
+// NativeTabs(플로팅)는 높이 훅이 없어 상수로 클리어 — safe-area 인셋 위로 이만큼 띄운다(추천 카드 겹침 방지)
+const TABBAR_CLEARANCE = 88;
 
 export default function MapScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [tile, setTile] = useState(() => lngLatToTile(FETCH_TILE_Z, 126.98, 37.55));
   const [showLines, setShowLines] = useState(true);
   const [selectedMountainId, setSelectedMountainId] = useState<string | null>(null);
@@ -51,6 +55,17 @@ export default function MapScreen() {
 
   const pending = usePendingSet();
   const verified = useVerifiedSet();
+
+  // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
+  // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.
+  //   가장 가까운 산+거리(05 §9)는 지도에서 GPS를 요청하지 않는 온보딩 원칙상 불가 → 시딩 폴백("이런 코스부터").
+  const { data: me } = useMeClimbs();
+  const [recDismissed, setRecDismissed] = useState(false);
+  const recommended = useMemo(
+    () => (courses ?? []).find((c) => c.difficulty === 'easy') ?? courses?.[0] ?? null,
+    [courses],
+  );
+  const showRec = !!me && me.totalClimbs === 0 && !selectedMountainId && !recDismissed && !!recommended;
 
   // onCameraIdle에서만 + 200ms 디바운스 (04 §7 — onCameraChanged fetch 금지)
   const onCameraIdle = useCallback(() => {
@@ -146,6 +161,25 @@ export default function MapScreen() {
           ))}
       </NaverMapView>
 
+      {showRec && recommended && (
+        <View style={[s.recWrap, { bottom: insets.bottom + TABBAR_CLEARANCE }]} pointerEvents="box-none">
+          <View style={s.recCard}>
+            <TouchableOpacity
+              style={s.recMain}
+              activeOpacity={0.85}
+              onPress={() => openMountain(recommended.mountainId)}
+            >
+              <Text style={s.recKicker}>🏔 이런 코스부터 칠해보세요</Text>
+              <Text style={s.recTitle} numberOfLines={1}>{recommended.name}</Text>
+              <Text style={s.recCta}>탭해서 코스 보기 →</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.recClose} onPress={() => setRecDismissed(true)} hitSlop={10}>
+              <Text style={s.recCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <BottomSheet ref={sheetRef} index={-1} snapPoints={['45%']} enablePanDownToClose>
         <BottomSheetScrollView contentContainerStyle={s.sheet}>
           {mountain ? (
@@ -196,4 +230,13 @@ const s = StyleSheet.create({
   // 05 §5: 장갑 대응 인증 CTA 64dp
   captureBtn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 64, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
   captureBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  // rank15: 빈 상태 추천 카드 — 지도 하단 플로팅 1장
+  recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: 16 },
+  recCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'flex-start', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  recMain: { flex: 1, gap: 4 },
+  recKicker: { fontSize: 13, color: '#666', fontWeight: '600' },
+  recTitle: { fontSize: 18, fontWeight: '700' },
+  recCta: { fontSize: 14, color: '#208AEF', fontWeight: '600', marginTop: 2 },
+  recClose: { padding: 4 },
+  recCloseText: { fontSize: 16, color: '#999' },
 });
