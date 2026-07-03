@@ -5,6 +5,12 @@ import { logout } from '@/lib/api';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
+import { C, R, SP } from '@/lib/theme';
+
+// ponytail: amber·divider는 C 미등록 — 이 화면용 로컬 const
+const AMBER_SOFT = '#FFF8E1';
+const AMBER_TEXT = '#7C5800';
+const DIVIDER_CLR = '#D1D5DB';
 
 function useDrafts(): Draft[] {
   const [rows, setRows] = useState<Draft[]>(() => listDrafts(['queued', 'uploading', 'failed_permanent']));
@@ -21,7 +27,8 @@ export default function Records() {
   const setAuthed = useSession((s) => s.setAuthed);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      {/* 헤더 */}
       <View style={s.header}>
         <Text style={s.title}>기록</Text>
         <TouchableOpacity onPress={() => logout().then(() => setAuthed(false))}>
@@ -29,23 +36,40 @@ export default function Records() {
         </TouchableOpacity>
       </View>
 
+      {/* 스탯 히어로 — 완등한 산이 주인공 */}
       {data && (
-        <View style={s.counters}>
-          <Text style={s.counter}>완등한 산 <Text style={s.counterNum}>{data.totalMountains}</Text></Text>
-          <Text style={s.counter}>완등 <Text style={s.counterNum}>{data.totalClimbs}</Text></Text>
+        <View style={s.hero}>
+          <View style={s.heroMain}>
+            <Text style={s.heroNum}>{data.totalMountains}</Text>
+            <Text style={s.heroMainLabel}>완등한 산</Text>
+          </View>
+          <View style={s.heroDivider} />
+          <View style={s.heroSub}>
+            <Text style={s.heroSubNum}>{data.totalClimbs}</Text>
+            <Text style={s.heroSubLabel}>전체 완등</Text>
+          </View>
         </View>
       )}
 
       {/* stale 초안: 자동 소멸 없음 — 탭=수동 flush, 삭제 버튼=수동 삭제 (04 §6) */}
       {drafts.length > 0 && (
         <View style={s.pendingBox}>
-          <Text style={s.pendingTitle}>전송 대기 {drafts.filter((d) => d.state !== 'failed_permanent').length}건</Text>
+          <Text style={s.pendingTitle}>
+            전송 대기 {drafts.filter((d) => d.state !== 'failed_permanent').length}건
+          </Text>
           {drafts.map((d) => (
             <TouchableOpacity key={d.local_uuid} style={s.pendingRow} onPress={() => flush()}>
               <Text style={s.pendingText}>
                 {d.state === 'failed_permanent' ? '⚠️ 제출 실패' : '🕐 대기 중'} ·{' '}
-                {new Date(d.captured_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                {d.last_attempt_at ? ` (마지막 시도 ${new Date(d.last_attempt_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})` : ''}
+                {new Date(d.captured_at).toLocaleString('ko-KR', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                {d.last_attempt_at
+                  ? ` (마지막 시도 ${new Date(d.last_attempt_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})`
+                  : ''}
               </Text>
               <TouchableOpacity onPress={() => deleteDraft(d.local_uuid)}>
                 <Text style={s.deleteBtn}>삭제</Text>
@@ -55,39 +79,48 @@ export default function Records() {
         </View>
       )}
 
+      {/* 완등 기록 리스트 */}
       <FlatList
         data={data?.climbs ?? []}
         keyExtractor={(c) => c.climbId}
-        contentContainerStyle={{ padding: 16, gap: 8 }}
+        contentContainerStyle={s.listContent}
         renderItem={({ item }) => (
-          <View style={s.row}>
-            <View style={s.rowHeader}>
+          <View style={s.card}>
+            {/* 난이도 뱃지 + 인증 상태 칩 */}
+            <View style={s.cardHeader}>
               {item.course?.difficulty && (
                 <View style={s.difficultyBadge}>
                   <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[item.course.difficulty] }]} />
                   <Text style={s.difficultyText}>{DIFFICULTY_LABEL[item.course.difficulty]}</Text>
                 </View>
               )}
-              <Text style={s.rowTitle}>
-                {item.course?.name
-                  ? `${item.mountain?.name ?? '산'} · ${item.course.name}`
-                  : '위치 인증 완료'}
-              </Text>
+              {item.status === 'verified' ? (
+                <View style={s.verifiedChip}>
+                  <Text style={s.verifiedChipText}>인증됨</Text>
+                </View>
+              ) : (
+                <Text style={s.alreadyText}>이미 인증된 코스</Text>
+              )}
             </View>
-            <Text style={s.rowMeta}>
-              {item.climbedOn} · {item.status === 'verified' ? '인증됨' : '이미 인증된 코스'}
+            {/* 코스명 타이틀 */}
+            <Text style={s.cardTitle}>
+              {item.course?.name
+                ? `${item.mountain?.name ?? '산'} · ${item.course.name}`
+                : '위치 인증 완료'}
             </Text>
+            {/* 날짜 메타 */}
+            <Text style={s.cardMeta}>{item.climbedOn}</Text>
           </View>
         )}
         ListEmptyComponent={
           isLoading ? (
-            <ActivityIndicator style={{ marginTop: 40 }} />
+            <ActivityIndicator style={{ marginTop: 40 }} color={C.brand} />
           ) : isError ? (
             <TouchableOpacity style={s.errorBox} onPress={() => refetch()}>
               <Text style={s.errorText}>기록을 불러오지 못했어요. 눌러서 다시 시도</Text>
             </TouchableOpacity>
           ) : (
-            <Text style={s.empty}>아직 기록이 없어요. 첫 산을 정복해보세요!</Text>
+            <Text style={s.empty}>아직 기록이 없어요. 첫 산을 완등해보세요!</Text>
           )
         }
       />
@@ -96,25 +129,107 @@ export default function Records() {
 }
 
 const s = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
-  title: { fontSize: 24, fontWeight: '700' },
-  logout: { color: '#666', fontWeight: '500' },
-  counters: { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingBottom: 8 },
-  counter: { fontSize: 15, fontWeight: '600', color: '#4B5563' },
-  counterNum: { fontSize: 17, fontWeight: '800', color: '#1D4ED8' },
-  pendingBox: { margin: 16, padding: 12, backgroundColor: '#FFF8E1', borderRadius: 12, gap: 8 },
-  pendingTitle: { fontWeight: '600' },
-  pendingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pendingText: { fontSize: 13, color: '#555', flex: 1 },
-  deleteBtn: { color: '#C43E00', fontSize: 13, paddingLeft: 8, fontWeight: '600' },
-  row: { padding: 14, backgroundColor: '#F5F5F5', borderRadius: 12 },
-  rowHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  rowTitle: { fontSize: 16, fontWeight: '600', flex: 1 },
-  rowMeta: { color: '#666', marginTop: 4, fontSize: 13, fontWeight: '500' },
-  empty: { textAlign: 'center', color: '#666', marginTop: 40 },
-  errorBox: { marginTop: 40, alignItems: 'center', padding: 16 },
-  errorText: { color: '#C43E00', fontWeight: '500' },
+  // ── 헤더
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SP.lg,
+    paddingTop: SP.sm,
+    paddingBottom: SP.md,
+  },
+  title: { fontSize: 24, fontWeight: '700', color: C.ink },
+  logout: { fontSize: 15, fontWeight: '500', color: C.faint },
+
+  // ── 스탯 히어로
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: SP.lg,
+    marginBottom: SP.lg,
+    paddingVertical: SP.xl,
+    paddingHorizontal: SP.xl,
+    backgroundColor: C.brandSoft,
+    borderRadius: R.card,
+  },
+  heroMain: { flex: 3, alignItems: 'center', gap: SP.xs },
+  heroNum: {
+    fontSize: 52,
+    fontWeight: '800',
+    color: C.brand,
+    lineHeight: 58,
+    fontVariant: ['tabular-nums'],
+  },
+  heroMainLabel: { fontSize: 13, fontWeight: '600', color: C.body },
+  heroDivider: {
+    width: 1,
+    height: 48,
+    backgroundColor: DIVIDER_CLR,
+    marginHorizontal: SP.lg,
+  },
+  heroSub: { flex: 2, alignItems: 'center', gap: SP.xs },
+  heroSubNum: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: C.body,
+    lineHeight: 42,
+    fontVariant: ['tabular-nums'],
+  },
+  heroSubLabel: { fontSize: 13, fontWeight: '500', color: C.faint },
+
+  // ── 전송 대기 박스
+  pendingBox: {
+    marginHorizontal: SP.lg,
+    marginBottom: SP.md,
+    padding: SP.md,
+    backgroundColor: AMBER_SOFT,
+    borderRadius: R.card,
+    gap: SP.sm,
+  },
+  pendingTitle: { fontSize: 14, fontWeight: '700', color: AMBER_TEXT },
+  pendingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pendingText: { fontSize: 13, color: AMBER_TEXT, flex: 1, opacity: 0.85 },
+  deleteBtn: { fontSize: 13, fontWeight: '600', color: C.danger, paddingLeft: SP.sm },
+
+  // ── 완등 카드
+  listContent: {
+    paddingHorizontal: SP.lg,
+    paddingTop: SP.xs,
+    paddingBottom: SP.xl,
+    gap: SP.sm,
+  },
+  card: {
+    padding: SP.lg,
+    backgroundColor: C.surface,
+    borderRadius: R.card,
+    gap: SP.xs,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SP.sm,
+    flexWrap: 'wrap',
+  },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: SP.xs },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  difficultyText: { fontSize: 12, fontWeight: '600', color: C.body },
+  verifiedChip: {
+    backgroundColor: C.successSoft,
+    paddingHorizontal: SP.sm,
+    paddingVertical: 2,
+    borderRadius: R.pill,
+  },
+  verifiedChipText: { fontSize: 11, fontWeight: '700', color: C.success },
+  alreadyText: { fontSize: 12, fontWeight: '500', color: C.faint },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: C.ink },
+  cardMeta: { fontSize: 13, fontWeight: '400', color: C.faint },
+
+  // ── 빈/에러
+  empty: { textAlign: 'center', fontSize: 15, color: C.faint, marginTop: 40 },
+  errorBox: { marginTop: 40, alignItems: 'center', padding: SP.lg },
+  errorText: { fontWeight: '500', color: C.danger, textAlign: 'center' },
 });
