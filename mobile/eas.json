@@ -9,6 +9,10 @@
       "android": { "buildType": "apk" },
       "ios": { "simulator": true }
     },
+    "device": {
+      "extends": "development",
+      "ios": { "simulator": false }
+    },
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" }
