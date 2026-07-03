@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { api } from '@/lib/api';
 import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
 import { attachCourse, cacheCourses, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
 // ponytail: 단일 화면 세션 상태라 Zustand 대신 useState — 화면 밖에서 구독할 소비자가 없다
@@ -21,6 +22,7 @@ type WizardState =
   | { key: 'out_of_range'; distanceM: number; courseName: string }
   | { key: 'select_course'; nearest: Course; clientRef: string }
   | { key: 'captured'; clientRef: string; courseName: string | null }
+  | { key: 'priming' }
   | { key: 'no_courses' };
 
 type CapturedFix = { lat: number; lng: number; accuracyM: number; isMock: boolean; capturedAt: string };
@@ -34,8 +36,20 @@ export default function Capture() {
   // 단일 소스 + 코스 더블탭 idempotency 가드. runningRef는 start() 재진입(재시도 더블탭) 차단.
   const pendingRef = useRef<string | null>(null);
   const runningRef = useRef(false);
+  const hapticFiredRef = useRef(false);
 
-  const start = async () => {
+  const { data: meClimbs } = useMeClimbs();
+
+  // 성공 햅틱 — captured 진입 1회. 네이티브 모듈 미탑재 dev 빌드에서도 크래시 방지.
+  useEffect(() => {
+    if (state.key === 'captured' && !hapticFiredRef.current) {
+      hapticFiredRef.current = true;
+      // ponytail: fire-and-forget, dev-client 재빌드 전엔 네이티브 없어 throw 가능
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+  }, [state.key]);
+
+  const start = async (skipPriming = false) => {
     if (runningRef.current) return; // 동시 재진입 차단 → clientRef 이중 생성(중복 제출) 방지
     runningRef.current = true;
     try {
@@ -59,6 +73,12 @@ export default function Capture() {
     }
     if (!list.length) return setState({ key: 'no_courses' });
 
+    // 05-design §3: 콜드 프롬프트 금지 — undetermined면 프라이밍 먼저
+    if (!skipPriming) {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'undetermined') return setState({ key: 'priming' });
+      if (status === 'denied') return setState({ key: 'permission_denied' });
+    }
     const perm = await Location.requestForegroundPermissionsAsync();
     if (!perm.granted) return setState({ key: 'permission_denied' });
 
@@ -144,7 +164,7 @@ export default function Capture() {
   const close = () => router.back();
 
   const retry = (
-    <TouchableOpacity style={s.btn} onPress={start}>
+    <TouchableOpacity style={s.btn} onPress={() => start()}>
       <Text style={s.btnText}>다시 시도</Text>
     </TouchableOpacity>
   );
@@ -156,6 +176,13 @@ export default function Capture() {
       </TouchableOpacity>
 
       {state.key === 'requesting_permission' && <Center title="위치 권한 확인 중…" />}
+      {state.key === 'priming' && (
+        <Center title="위치 권한이 필요해요" body="인증 순간의 위치 1점만 사용해요. 백그라운드 추적은 하지 않아요.">
+          <TouchableOpacity style={s.btn} onPress={() => start(true)}>
+            <Text style={s.btnText}>위치 허용하고 인증</Text>
+          </TouchableOpacity>
+        </Center>
+      )}
       {state.key === 'permission_denied' && (
         <Center title="위치 권한이 필요해요" body="인증 순간의 위치로만 완등을 확인해요. 백그라운드 추적은 하지 않아요.">
           <TouchableOpacity style={s.btn} onPress={() => Linking.openSettings()}>
@@ -204,8 +231,14 @@ export default function Capture() {
 
       {state.key === 'captured' && (
         <Center title="인증 완료! 🎉" body={`${state.courseName ?? '코스 미선택'}\n연결되면 자동으로 제출돼요. 늦어도 다음에 앱을 열 때.`}>
+          {(meClimbs?.totalMountains ?? 0) > 0 && (
+            <Text style={s.counterText}>지금까지 {meClimbs!.totalMountains}좌 완등</Text>
+          )}
           <TouchableOpacity style={s.btn} onPress={() => router.back()}>
             <Text style={s.btnText}>지도로 돌아가기</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.btnOutline} onPress={() => router.navigate('/(tabs)/records')}>
+            <Text style={s.btnOutlineText}>기록 보기</Text>
           </TouchableOpacity>
         </Center>
       )}
@@ -242,4 +275,7 @@ const s = StyleSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5 },
   laterBtn: { alignItems: 'center', padding: 16, minHeight: 48, justifyContent: 'center' },
   laterText: { color: '#666', fontWeight: '500' },
+  counterText: { fontSize: 16, fontWeight: '600', color: '#208AEF', textAlign: 'center' },
+  btnOutline: { borderWidth: 2, borderColor: '#208AEF', borderRadius: 12, minHeight: 56, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
+  btnOutlineText: { color: '#208AEF', fontSize: 17, fontWeight: '700' },
 });
