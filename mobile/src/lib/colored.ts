@@ -42,7 +42,7 @@ export const DIFFICULTY_LABEL: Record<string, string> = {
   moderate: '보통',
   hard: '어려움',
 };
-export const UNCLIMBED_COLOR = '#9E9E9E66';
+export const UNCLIMBED_COLOR = '#8A8A8ACC'; // 05 §9 도화지: 저불투명이되 톤다운 지도·basemap 트레일 위에서 읽히게 (66→CC)
 
 // 04 §7 / 05 §3.1: 코스 선 3상태를 색 단독이 아니라 색+굵기+패턴으로 이중 인코딩(색약 안전).
 export type LineState = 'unclimbed' | 'pending' | 'verified';
@@ -53,5 +53,5 @@ export function lineStyle(
   const color = DIFFICULTY_COLOR[difficulty ?? 'moderate'];
   if (state === 'verified') return { color, width: 6 }; // 실선·굵게 = 완등
   if (state === 'pending') return { color, width: 4, pattern: [12, 8] }; // 점선 = 제출 대기(진행 중)
-  return { color: UNCLIMBED_COLOR, width: 2 }; // 회색·가늘게 = 미완등
+  return { color: UNCLIMBED_COLOR, width: 3 }; // 회색 = 미완등(도화지: 보이되 verified 실선 w6보다 약하게)
 }
