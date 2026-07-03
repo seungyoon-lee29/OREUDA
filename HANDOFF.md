@@ -7,6 +7,8 @@
   - f421006 폴더 총정리 + worklets 패치 + .claude 전체
   - b3f4175 autoFixable 스펙 컨포먼스(팔레트/뱃지/터치타깃/대비/JWT가드/좌표스크럽/verified필터)
   - af26d5c 캡처 데이터-유실(rank1) + 적대적 검증 하드닝
+  - 80cea0a 인증 성공 시퀀스 + 위치 권한 프라이밍 (rank6/rank14) — capture.tsx, expo-haptics 추가
+  - a61a6cd 코스 선 상태별 렌더 + 지도 톤다운 + 저줌 산 마커 (rank5/16/10) — index.tsx, colored.ts
 
 ## 캡처 아웃박스 계약 (rank1 이후 — 건드리기 전 필독)
 - insertCapture(state='awaiting_course', courseId=null) = 판정 통과 즉시 durable = 성공 시점(04 §4.1).
@@ -14,12 +16,20 @@
 - 콜드스타트(wireOutbox)는 awaiting_course + uploading 모두 queued 재큐(멱등 서버라 replay 안전).
 - 이탈 경로 finalize는 pendingRef+언마운트 이펙트가 단일 보장. start()는 runningRef 재진입 가드. flush POST 20s abort 타임아웃.
 
-## 다음 할 것 (감사 후속, 우선순위 — 이제 앱이 도니 시뮬로 런타임 검증 가능)
-1. **rank6 인증 성공 시퀀스** — captured 진입 시 Haptics.notificationAsync(Success) + '나의 N번째 산' 카운터(me/climbs totalMountains) + CTA '기록 보기'(→/records). 대부분 코드, 햅틱만 실기. rank1 새 플로우와 직결.
-2. **rank5 코스 선 상태별 렌더** — 미완등(난이도색 저불투명·가늘게)/pending(+흰케이싱+시계뱃지)/verified(굵게) 구별. colored.ts lineColor 상태분기 + index.tsx. 지도 실기 검증.
-3. **rank16 지도 스타일** — 홈 Basic+톤다운 / 상세 Terrain, 위성·산악레이어 off. 저채도 배경이 색칠 대비 뒷받침.
-4. **rank10 저줌 정복 마커/클러스터** — 저줌에서 체크포인트 숨기고 산 단위 마커(미정복 아웃라인/정복 채움+체크), NaverMapView clusters prop.
-5. **rank14 권한 프라이밍** / **rank15 빈상태 추천카드** / **rank9 Sentry(+좌표 스크럽, 네이티브 재빌드)** / **rank13 DB sslmode verify-full** / **rank18 throttle ip+email(or 문서화)**.
+## 방금 착지 (rank6/14/5/16/10 — 병렬 에이전트 2, tsc+lint 클린, 커밋 80cea0a·a61a6cd)
+런타임 눈 검증만 남음(코드는 완료). 시뮬에서 확인할 것:
+- **햅틱**: dev-client **재빌드 필요**(expo-haptics 네이티브). 현재 빌드는 무해히 skip. 재빌드 후 captured 진입 시 성공 진동 확인.
+- **권한 프라이밍**: 앱 위치권한 초기화 후 진입 → priming 화면 → '위치 허용하고 인증' → OS 프롬프트 흐름.
+- **카운터/CTA**: 완등 기록 있는 계정에서 '지금까지 N좌' 표시 + '기록 보기'→records 탭.
+- **선 3상태**: verified 굵은 실선 / pending 점선[12,8] / unclimbed 회색 가는선 구분(색+굵기+패턴).
+- **톤다운**: lightness -0.15 + 레이어 off가 과/약하지 않은지, Okabe-Ito 대비. 대시 간격 iOS/Android 튜닝 여지.
+- **저줌 산 마커**: 줌 히스테리시스 경계(z11.5/10.5)에서 checkpoint↔산마커 전환, centroid 위치 자연스러운지, 정복 green+✓ / 미정복 gray.
+
+## 다음 할 것 (남은 감사 후속)
+1. **rank15 빈상태 추천카드** — index.tsx 바텀시트/빈 지도 상태에 추천 코스 카드. (index.tsx라 위 지도 커밋과 같은 파일 — 이어서.)
+2. **rank9 Sentry** — DSN 필요(사용자 제공) + 네이티브 재빌드. 좌표 스크럽 beforeSend 포함. **블록**.
+3. **rank13 DB sslmode verify-full** — Supabase CA 번들 필요, verify 없이 바꾸면 Fly 연결 끊김 → ADR/문서화 우선 권고(즉시 적용 리스크).
+4. **rank18 throttle** — api-design 규칙이 'IP 기준'으로 확정(Fly trust proxy) + 감사 LOW → **문서화로 종결**(코드 변경 안 함).
 
 ## 검증/재현
 ```bash
