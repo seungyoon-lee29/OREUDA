@@ -1,0 +1,38 @@
+diff --git a/node_modules/react-native-worklets/lib/module/featureFlags/featureFlags.native.js b/node_modules/react-native-worklets/lib/module/featureFlags/featureFlags.native.js
+index 03ee276..5e8a3e4 100644
+--- a/node_modules/react-native-worklets/lib/module/featureFlags/featureFlags.native.js
++++ b/node_modules/react-native-worklets/lib/module/featureFlags/featureFlags.native.js
+@@ -44,7 +44,13 @@ export function getStaticFeatureFlag(name) {
+   if (name in staticFeatureFlags) {
+     return staticFeatureFlags[name];
+   }
+-  const featureFlagValue = WorkletsModule.getStaticFeatureFlag(name);
++  // ponytail: RN 0.86 Hermes(V1)가 이 static flag를 모르면 throw → dev 진단 기능이라 false 폴백.
++  let featureFlagValue;
++  try {
++    featureFlagValue = WorkletsModule.getStaticFeatureFlag(name);
++  } catch {
++    featureFlagValue = false;
++  }
+   staticFeatureFlags[name] = featureFlagValue;
+   return featureFlagValue;
+ }
+diff --git a/node_modules/react-native-worklets/src/featureFlags/featureFlags.native.ts b/node_modules/react-native-worklets/src/featureFlags/featureFlags.native.ts
+index c9afa8c..6f1cdc9 100644
+--- a/node_modules/react-native-worklets/src/featureFlags/featureFlags.native.ts
++++ b/node_modules/react-native-worklets/src/featureFlags/featureFlags.native.ts
+@@ -64,7 +64,13 @@ export function getStaticFeatureFlag(
+   if (name in staticFeatureFlags) {
+     return staticFeatureFlags[name]!;
+   }
+-  const featureFlagValue = WorkletsModule.getStaticFeatureFlag(name);
++  // ponytail: RN 0.86 Hermes(V1) 네이티브가 이 static flag를 모르면 throw → dev 진단 기능이라 false 폴백. patch-package로 고정.
++  let featureFlagValue: boolean;
++  try {
++    featureFlagValue = WorkletsModule.getStaticFeatureFlag(name);
++  } catch {
++    featureFlagValue = false;
++  }
+   staticFeatureFlags[name] = featureFlagValue;
+   return featureFlagValue;
+ }

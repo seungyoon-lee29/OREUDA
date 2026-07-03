@@ -1,0 +1,6 @@
+# git worktree 생성 시 복사할 gitignored 파일 목록.
+# 워크트리는 추적 파일만 체크아웃하므로, 아래 시크릿/로컬 설정은 별도로 복사해야 빌드·실행이 됨.
+api/.env
+mobile/.env
+.claude/settings.local.json
+CLAUDE.local.md

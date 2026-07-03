@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Claude 개인 설정 (공유 안 함)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+CLAUDE.local.md
+.claude/agent-memory/
+
+# 시크릿 — 각 패키지 .gitignore에도 있지만 루트에서 재확인
+**/.env
+!**/.env.example
+
+# 의존성 / 빌드 산출물 (패키지별 .gitignore 보완)
+**/node_modules/
