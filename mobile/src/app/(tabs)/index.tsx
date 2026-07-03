@@ -152,7 +152,7 @@ export default function MapScreen() {
               width={28}
               height={28}
               image={{ symbol: m.conquered ? 'green' : 'gray' }}
-              caption={{ text: m.conquered ? '정복 ✓' : '미정복' }}
+              caption={{ text: m.conquered ? '완등 ✓' : '미완등' }}
               // ponytail: react-hooks/refs 오탐 — openMountain의 sheetRef 접근은 탭 핸들러에서만 실행(렌더 아님).
               // 위 checkpoint 마커와 동일 패턴인데 여기 배열만 memo(컴파일러 가시)라 오탐. 코드는 안전.
               // eslint-disable-next-line react-hooks/refs

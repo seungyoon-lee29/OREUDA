@@ -31,8 +31,8 @@ export default function Records() {
 
       {data && (
         <View style={s.counters}>
-          <Text style={s.counter}>정복한 산 {data.totalMountains}</Text>
-          <Text style={s.counter}>완등 {data.totalClimbs}</Text>
+          <Text style={s.counter}>완등한 산 <Text style={s.counterNum}>{data.totalMountains}</Text></Text>
+          <Text style={s.counter}>완등 <Text style={s.counterNum}>{data.totalClimbs}</Text></Text>
         </View>
       )}
 
@@ -69,7 +69,9 @@ export default function Records() {
                 </View>
               )}
               <Text style={s.rowTitle}>
-                {item.mountain?.name ?? '(산 미지정)'} · {item.course?.name ?? '코스 미선택'}
+                {item.course?.name
+                  ? `${item.mountain?.name ?? '산'} · ${item.course.name}`
+                  : '위치 인증 완료'}
               </Text>
             </View>
             <Text style={s.rowMeta}>
@@ -98,7 +100,8 @@ const s = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700' },
   logout: { color: '#666', fontWeight: '500' },
   counters: { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingBottom: 8 },
-  counter: { fontSize: 15, fontWeight: '600', color: '#208AEF' },
+  counter: { fontSize: 15, fontWeight: '600', color: '#4B5563' },
+  counterNum: { fontSize: 17, fontWeight: '800', color: '#1D4ED8' },
   pendingBox: { margin: 16, padding: 12, backgroundColor: '#FFF8E1', borderRadius: 12, gap: 8 },
   pendingTitle: { fontWeight: '600' },
   pendingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

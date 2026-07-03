@@ -27,6 +27,9 @@ type WizardState =
 
 type CapturedFix = { lat: number; lng: number; accuracyM: number; isMock: boolean; capturedAt: string };
 
+// 거리 표기: 1km 이상은 km 한 자리, 미만은 m (05 폴리시 — raw 5자리 미터 금지)
+const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`);
+
 export default function Capture() {
   const { mountainId } = useLocalSearchParams<{ mountainId: string }>();
   const router = useRouter();
@@ -197,7 +200,7 @@ export default function Capture() {
         <Center title="정확도가 낮아요" body={`현재 오차 ±${state.accuracy}m — 100m 이하일 때 인증할 수 있어요`}>{retry}</Center>
       )}
       {state.key === 'out_of_range' && (
-        <Center title="체크포인트가 아직 멀어요" body={`${state.courseName} 체크포인트까지 ${state.distanceM}m`}>{retry}</Center>
+        <Center title="체크포인트가 아직 멀어요" body={`${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)}`}>{retry}</Center>
       )}
       {state.key === 'no_courses' && (
         <Center title="코스 정보가 없어요" body="온라인 상태에서 산 상세를 한 번 열어두면 오프라인에서도 인증할 수 있어요" />
@@ -260,13 +263,14 @@ const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: '#fff' },
   close: { position: 'absolute', top: 48, right: 12, zIndex: 1, padding: 16 },
   closeText: { fontSize: 24, color: '#666' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 },
+  // 상단 void 방지 — 콘텐츠를 화면 상단 ~28%에 앵커(중앙 정렬 시 '덜 만든' 느낌, 05 폴리시)
+  center: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 200, gap: 16 },
   bigTitle: { fontSize: 26, fontWeight: '700', textAlign: 'center' },
   body: { fontSize: 15, color: '#666', textAlign: 'center', lineHeight: 22 },
   // 05 §5: 야외/장갑 대응 최소 56dp
   btn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 56, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
   btnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  selectWrap: { flex: 1, justifyContent: 'center', padding: 24, gap: 10 },
+  selectWrap: { flex: 1, padding: 24, paddingTop: 180, gap: 10 },
   courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: '#F5F5F5', borderRadius: 12 },
   courseBtnNearest: { borderWidth: 2, borderColor: '#208AEF' },
   courseBtnText: { fontSize: 16, fontWeight: '500', flex: 1 },
