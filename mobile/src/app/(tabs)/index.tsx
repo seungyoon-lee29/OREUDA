@@ -13,7 +13,8 @@ import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
 import { cacheCourses } from '@/lib/outbox';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, lineStyle, useMeClimbs, usePendingSet, useVerifiedSet } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, lineStyle, mountainMarkerStyle, useMeClimbs, usePendingSet, useVerifiedSet } from '@/lib/colored';
+import { C, R, SP } from '@/lib/theme';
 
 // 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
 const LINE_ZOOM_IN = 11.5;
@@ -144,21 +145,24 @@ export default function MapScreen() {
             />
           ))}
         {!showLines &&
-          mountainMarkers.map((m) => (
-            <NaverMapMarkerOverlay
-              key={`mt-${m.mountainId}`}
-              latitude={m.lat}
-              longitude={m.lng}
-              width={28}
-              height={28}
-              image={{ symbol: m.conquered ? 'green' : 'gray' }}
-              caption={{ text: m.conquered ? '완등 ✓' : '미완등' }}
-              // ponytail: react-hooks/refs 오탐 — openMountain의 sheetRef 접근은 탭 핸들러에서만 실행(렌더 아님).
-              // 위 checkpoint 마커와 동일 패턴인데 여기 배열만 memo(컴파일러 가시)라 오탐. 코드는 안전.
-              // eslint-disable-next-line react-hooks/refs
-              onTap={() => openMountain(m.mountainId)}
-            />
-          ))}
+          mountainMarkers.map((m) => {
+            const mk = mountainMarkerStyle(m.conquered);
+            return (
+              <NaverMapMarkerOverlay
+                key={`mt-${m.mountainId}`}
+                latitude={m.lat}
+                longitude={m.lng}
+                width={28}
+                height={28}
+                image={{ symbol: mk.symbol }}
+                caption={mk.caption}
+                // ponytail: react-hooks/refs 오탐 — openMountain의 sheetRef 접근은 탭 핸들러에서만 실행(렌더 아님).
+                // 위 checkpoint 마커와 동일 패턴인데 여기 배열만 memo(컴파일러 가시)라 오탐. 코드는 안전.
+                // eslint-disable-next-line react-hooks/refs
+                onTap={() => openMountain(m.mountainId)}
+              />
+            );
+          })}
       </NaverMapView>
 
       {showRec && recommended && (
@@ -171,7 +175,7 @@ export default function MapScreen() {
             >
               <Text style={s.recKicker}>🏔 이런 코스부터 칠해보세요</Text>
               <Text style={s.recTitle} numberOfLines={1}>{recommended.name}</Text>
-              <Text style={s.recCta}>탭해서 코스 보기 →</Text>
+              <Text style={s.recCta}>코스 보기 →</Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.recClose} onPress={() => setRecDismissed(true)} hitSlop={10}>
               <Text style={s.recCloseText}>✕</Text>
@@ -181,7 +185,7 @@ export default function MapScreen() {
       )}
 
       <BottomSheet ref={sheetRef} index={-1} snapPoints={['45%']} enablePanDownToClose>
-        <BottomSheetScrollView contentContainerStyle={s.sheet}>
+        <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + TABBAR_CLEARANCE }]}>
           {mountain ? (
             <>
               <Text style={s.name}>{mountain.name}</Text>
@@ -194,11 +198,13 @@ export default function MapScreen() {
                     <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
                     <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
                   </View>
-                  <Text style={s.courseName}>{c.name}</Text>
-                  <Text style={s.courseMeta}>
-                    {c.distanceM ? `${(c.distanceM / 1000).toFixed(1)}km` : ''}{' '}
-                    {c.durationMin ? `${c.durationMin}분` : ''}
-                  </Text>
+                  <View style={s.courseInfo}>
+                    <Text style={s.courseName} numberOfLines={1}>{c.name}</Text>
+                    <Text style={s.courseMeta}>
+                      {c.distanceM ? `${(c.distanceM / 1000).toFixed(1)}km` : ''}{' '}
+                      {c.durationMin ? `${c.durationMin}분` : ''}
+                    </Text>
+                  </View>
                 </View>
               ))}
               <TouchableOpacity
@@ -218,25 +224,28 @@ export default function MapScreen() {
 }
 
 const s = StyleSheet.create({
-  sheet: { padding: 20, gap: 8 },
-  name: { fontSize: 24, fontWeight: '700' },
-  meta: { color: '#666' },
-  courseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
-  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
-  courseName: { fontSize: 16, flex: 1 },
-  courseMeta: { color: '#666', fontSize: 13, fontWeight: '500' },
+  sheet: { padding: SP.xl, gap: SP.xs },
+  name: { fontSize: 24, fontWeight: '700', color: C.ink },
+  meta: { color: C.faint, fontSize: 14, marginTop: SP.xs, marginBottom: SP.sm },
+  // 코스 행: [난이도 pill] · [코스명 위 / meta 아래] 스택 위계. hairline 구분선으로 리스트 리듬.
+  courseRow: { flexDirection: 'row', alignItems: 'center', gap: SP.md, paddingVertical: SP.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: C.surface },
+  courseInfo: { flex: 1, gap: 2 },
+  courseName: { fontSize: 16, fontWeight: '600', color: C.ink },
+  courseMeta: { color: C.faint, fontSize: 13, fontWeight: '500' },
+  // 난이도 뱃지: 색약 안전 이중 인코딩(Okabe-Ito dot + 라벨). surface pill로 선명하게.
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: SP.xs, backgroundColor: C.surface, paddingHorizontal: SP.sm, paddingVertical: SP.xs, borderRadius: R.pill },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  difficultyText: { fontSize: 12, fontWeight: '700', color: C.body },
   // 05 §5: 장갑 대응 인증 CTA 64dp
-  captureBtn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 64, justifyContent: 'center', alignItems: 'center', marginTop: 12 },
-  captureBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  // rank15: 빈 상태 추천 카드 — 지도 하단 플로팅 1장
-  recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: 16 },
-  recCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'flex-start', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
-  recMain: { flex: 1, gap: 4 },
-  recKicker: { fontSize: 13, color: '#666', fontWeight: '600' },
-  recTitle: { fontSize: 18, fontWeight: '700' },
-  recCta: { fontSize: 14, color: '#208AEF', fontWeight: '600', marginTop: 2 },
-  recClose: { padding: 4 },
-  recCloseText: { fontSize: 16, color: '#999' },
+  captureBtn: { backgroundColor: C.brand, borderRadius: R.btn, minHeight: 64, justifyContent: 'center', alignItems: 'center', marginTop: SP.lg },
+  captureBtnText: { color: C.white, fontSize: 17, fontWeight: '700' },
+  // rank15: 빈 상태 추천 카드 — 지도 하단 플로팅 1장. 브랜드 좌측 액센트 + 리치 그림자로 프리미엄.
+  recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
+  recCard: { flexDirection: 'row', backgroundColor: C.white, borderRadius: R.card, padding: SP.lg, gap: SP.sm, alignItems: 'flex-start', borderLeftWidth: 3, borderLeftColor: C.brand, shadowColor: '#000', shadowOpacity: 0.14, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  recMain: { flex: 1, gap: SP.xs },
+  recKicker: { fontSize: 13, color: C.brand, fontWeight: '700' },
+  recTitle: { fontSize: 18, fontWeight: '700', color: C.ink },
+  recCta: { fontSize: 14, color: C.brand, fontWeight: '600', marginTop: SP.xs },
+  recClose: { padding: SP.xs },
+  recCloseText: { fontSize: 16, color: C.faint },
 });

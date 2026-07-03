@@ -4,6 +4,7 @@ import { api } from './api';
 import { MeClimbsSchema } from './schemas';
 import { pendingCourseIds, subscribeOutbox } from './outbox';
 import { useSession } from './stores';
+import { C } from './theme';
 
 // 색칠 SSOT (04 §1): pending = outbox 파생, verified = me/climbs 캐시 파생. 렌더는 O(1) 룩업.
 export function usePendingSet(): Set<string> {
@@ -43,6 +44,14 @@ export const DIFFICULTY_LABEL: Record<string, string> = {
   hard: '어려움',
 };
 export const UNCLIMBED_COLOR = '#8A8A8ACC'; // 05 §9 도화지: 저불투명이되 톤다운 지도·basemap 트레일 위에서 읽히게 (66→CC)
+
+// 05 §9 저줌 산 마커 SSOT: 색(symbol green/gray)+아이콘(✓)+텍스트 삼중 인코딩(색약 안전, 색 단독 금지).
+// 톤다운 basemap 위 캡션 가독성은 haloColor(흰 외곽선)로 — 라이브러리 caption엔 pill/배경 prop이 없어 halo가 유일한 수단.
+export function mountainMarkerStyle(conquered: boolean) {
+  return conquered
+    ? { symbol: 'green' as const, caption: { text: '완등 ✓', color: C.success, haloColor: C.white, textSize: 13 } }
+    : { symbol: 'gray' as const, caption: { text: '미완등', color: C.body, haloColor: C.white, textSize: 13 } };
+}
 
 // 04 §7 / 05 §3.1: 코스 선 3상태를 색 단독이 아니라 색+굵기+패턴으로 이중 인코딩(색약 안전).
 export type LineState = 'unclimbed' | 'pending' | 'verified';
