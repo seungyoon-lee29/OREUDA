@@ -12,7 +12,8 @@
   - 2ad5f11 빈 상태 시작 코스 추천 카드 (rank15)
   - a432e60 미완등 코스선 가독성 (rank5 런타임 폴리시)
   - ad6df0c 디자인 비평 반영 (용어 통일·거리 포맷·대비·null 카피·top-void)
-  - **[Pass 2 디자인 100x]** 3e07412 UI 토큰 모듈(theme.ts) / 2e529cf 완등 성공 시퀀스 프리미엄화(capture) / 8dd60dc 지도 마커·추천카드·바텀시트 + 시트 CTA 탭바 클리어런스(index/colored) / ab67b38 기록 스탯 히어로화 + 인증됨 칩(records)
+  - **[Pass 2 디자인 100x]** 3e07412 UI 토큰 모듈(theme.ts) / 2e529cf 완등 성공 시퀀스 프리미엄화(capture) / 8dd60dc 지도 마커·추천카드·바텀시트 + 시트 CTA 탭바 클리어런스(index/colored) / ab67b38 기록 스탯 히어로화 + 인증됨 칩(records) / 652587e HANDOFF
+  - **push 완료** (2026-07-03): origin/claude/hiking-app-planning-19khzn = 652587e (17커밋 발행). 이제 로컬=원격 동기.
 
 ## 캡처 아웃박스 계약 (rank1 이후 — 건드리기 전 필독)
 - insertCapture(state='awaiting_course', courseId=null) = 판정 통과 즉시 durable = 성공 시점(04 §4.1).
@@ -41,7 +42,7 @@ iOS 시뮬(test1234 로그인)에서 딥링크(`mobile:///capture?mountainId=`)+
 
 ## 다음 할 것
 ### /polish 2 잔여 (대부분 위 Pass 2에서 착지 — 남은 것만)
-- **전환/모션 프레임 감사**: reanimated captured 진입은 넣었으나, 화면 녹화 프레임-투-프레임 감사는 미실시. pending 점선 대시 간격, 줌 11.5 경계 마커(라인↔산마커) 전환 페이드, 바텀시트 스프링을 실기기 녹화로 점검. (스샷은 정착 프레임만 잡음 → 모션은 device 필요.)
+- **전환/모션 감사**: captured 진입 애니 **구조 감사 완료(코드 리뷰)** — opacity 0→1+scale 0.94→1(팝-인/레이아웃시프트 없음), 엠블럼 스프링 ζ≈0.50(약 6% 오버슈트, 축하에 적절), 90ms 스태거+햅틱 동반. 구조적 결함 없음. **남은 건 device-only**: 실기기 120fps 스무스니스/프레임드랍/햅틱 체감, pending 점선 대시·줌 11.5 경계 마커전환 페이드·바텀시트 스프링은 제스처/ProMotion 필요(시뮬 소프트렌더러로는 측정 대상 아님, ffmpeg도 없음).
 - **저줌 마커 진짜 pill/커스텀 형태**: 현재 halo가 상한(lib 캡션 한계). pill 배경/채운-vs-아웃라인 형태 이중코딩은 커스텀 PNG 에셋 + dev client 재빌드가 있어야 가능 → 별도 작업으로.
 - **소형기기(SE) captured 세로 여유** 확인(히어로+칩+2CTA), **탭 비활성 tint** NativeTabs 네이티브라 JS로 미적용(필요 시 네이티브 설정).
 ### 백엔드/인프라 (미적용)
