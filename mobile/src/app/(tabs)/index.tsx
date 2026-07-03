@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
 import { cacheCourses } from '@/lib/outbox';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, UNCLIMBED_COLOR, usePendingSet, useVerifiedSet } from '@/lib/colored';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, lineStyle, usePendingSet, useVerifiedSet } from '@/lib/colored';
 
 // 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
 const LINE_ZOOM_IN = 11.5;
@@ -62,46 +62,88 @@ export default function MapScreen() {
     }, 200);
   }, []);
 
-  const lineColor = (c: Course) =>
-    verified.has(c.id) || pending.has(c.id)
-      ? DIFFICULTY_COLOR[c.difficulty ?? 'moderate']
-      : UNCLIMBED_COLOR;
+  const lineState = (c: Course) =>
+    verified.has(c.id) ? 'verified' : pending.has(c.id) ? 'pending' : 'unclimbed';
 
-  const openMountain = (mountainId: string) => {
+  // rank10: 저줌이면 산 단위로 집약 — mountainId별 checkpoint centroid에 마커 1개. 정복=코스 중 verified 존재.
+  // ponytail: courses는 타일당 소수라 매 렌더 계산 OK. 화면거리 기반 군집이 필요해지면 NaverMapView clusters prop으로 승급.
+  const mountainMarkers = useMemo(() => {
+    const groups = new Map<string, Course[]>();
+    for (const c of courses ?? []) {
+      const arr = groups.get(c.mountainId);
+      if (arr) arr.push(c);
+      else groups.set(c.mountainId, [c]);
+    }
+    return [...groups].map(([mountainId, cs]) => ({
+      mountainId,
+      lat: cs.reduce((s, c) => s + c.checkpointPoint.coordinates[1], 0) / cs.length,
+      lng: cs.reduce((s, c) => s + c.checkpointPoint.coordinates[0], 0) / cs.length,
+      conquered: cs.some((c) => verified.has(c.id)),
+    }));
+  }, [courses, verified]);
+
+  const openMountain = useCallback((mountainId: string) => {
     setSelectedMountainId(mountainId);
     sheetRef.current?.snapToIndex(0);
-  };
+  }, []);
 
   return (
     <View style={{ flex: 1 }}>
       <NaverMapView
         style={{ flex: 1 }}
         initialCamera={{ latitude: 37.55, longitude: 126.98, zoom: 11.5 }}
+        // rank16: 홈 지도 톤다운 — Basic + 불필요 레이어 off + lightness↓(오버레이 밝기는 그대로라 색칠 대비 상승).
+        // ponytail: 상세 Terrain 톤은 v0에 상세 지도 화면이 없어(상세=바텀시트) 해당 없음.
+        mapType="Basic"
+        layerGroups={{ BUILDING: true, TRAFFIC: false, TRANSIT: false, BICYCLE: false, MOUNTAIN: false, CADASTRAL: false }}
+        lightness={-0.15}
         onCameraChanged={({ latitude, longitude, zoom }) => {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
         onCameraIdle={onCameraIdle}
       >
         {showLines &&
+          courses?.map((c) => {
+            const st = lineStyle(lineState(c), c.difficulty);
+            return (
+              <NaverMapPolylineOverlay
+                key={c.id}
+                coords={c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))}
+                width={st.width}
+                color={st.color}
+                pattern={st.pattern}
+                onTap={() => openMountain(c.mountainId)}
+              />
+            );
+          })}
+        {/* rank10: 고줌=코스별 checkpoint 마커, 저줌=산 단위 집약 마커(정복=green+✓ / 미정복=gray, 색+아이콘+텍스트 이중 인코딩) */}
+        {showLines &&
           courses?.map((c) => (
-            <NaverMapPolylineOverlay
-              key={c.id}
-              coords={c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))}
-              width={4}
-              color={lineColor(c)}
+            <NaverMapMarkerOverlay
+              key={`cp-${c.id}`}
+              latitude={c.checkpointPoint.coordinates[1]}
+              longitude={c.checkpointPoint.coordinates[0]}
+              width={20}
+              height={20}
               onTap={() => openMountain(c.mountainId)}
             />
           ))}
-        {courses?.map((c) => (
-          <NaverMapMarkerOverlay
-            key={`cp-${c.id}`}
-            latitude={c.checkpointPoint.coordinates[1]}
-            longitude={c.checkpointPoint.coordinates[0]}
-            width={20}
-            height={20}
-            onTap={() => openMountain(c.mountainId)}
-          />
-        ))}
+        {!showLines &&
+          mountainMarkers.map((m) => (
+            <NaverMapMarkerOverlay
+              key={`mt-${m.mountainId}`}
+              latitude={m.lat}
+              longitude={m.lng}
+              width={28}
+              height={28}
+              image={{ symbol: m.conquered ? 'green' : 'gray' }}
+              caption={{ text: m.conquered ? '정복 ✓' : '미정복' }}
+              // ponytail: react-hooks/refs 오탐 — openMountain의 sheetRef 접근은 탭 핸들러에서만 실행(렌더 아님).
+              // 위 checkpoint 마커와 동일 패턴인데 여기 배열만 memo(컴파일러 가시)라 오탐. 코드는 안전.
+              // eslint-disable-next-line react-hooks/refs
+              onTap={() => openMountain(m.mountainId)}
+            />
+          ))}
       </NaverMapView>
 
       <BottomSheet ref={sheetRef} index={-1} snapPoints={['45%']} enablePanDownToClose>

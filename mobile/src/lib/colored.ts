@@ -43,3 +43,15 @@ export const DIFFICULTY_LABEL: Record<string, string> = {
   hard: '어려움',
 };
 export const UNCLIMBED_COLOR = '#9E9E9E66';
+
+// 04 §7 / 05 §3.1: 코스 선 3상태를 색 단독이 아니라 색+굵기+패턴으로 이중 인코딩(색약 안전).
+export type LineState = 'unclimbed' | 'pending' | 'verified';
+export function lineStyle(
+  state: LineState,
+  difficulty: string | null | undefined,
+): { color: string; width: number; pattern?: number[] } {
+  const color = DIFFICULTY_COLOR[difficulty ?? 'moderate'];
+  if (state === 'verified') return { color, width: 6 }; // 실선·굵게 = 완등
+  if (state === 'pending') return { color, width: 4, pattern: [12, 8] }; // 점선 = 제출 대기(진행 중)
+  return { color: UNCLIMBED_COLOR, width: 2 }; // 회색·가늘게 = 미완등
+}
