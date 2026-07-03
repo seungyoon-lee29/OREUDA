@@ -10,6 +10,8 @@ import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
 import { attachCourse, cacheCourses, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
+import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import { C, R, SP, CTA_H } from '@/lib/theme';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
 // ponytail: 단일 화면 세션 상태라 Zustand 대신 useState — 화면 밖에서 구독할 소비자가 없다
@@ -180,7 +182,7 @@ export default function Capture() {
 
       {state.key === 'requesting_permission' && <Center title="위치 권한 확인 중…" />}
       {state.key === 'priming' && (
-        <Center title="위치 권한이 필요해요" body="인증 순간의 위치 1점만 사용해요. 백그라운드 추적은 하지 않아요.">
+        <Center title="위치 권한이 필요해요" body="인증하는 순간의 위치만 딱 한 번 사용해요. 백그라운드 추적은 하지 않아요.">
           <TouchableOpacity style={s.btn} onPress={() => start(true)}>
             <Text style={s.btnText}>위치 허용하고 인증</Text>
           </TouchableOpacity>
@@ -200,7 +202,16 @@ export default function Capture() {
         <Center title="정확도가 낮아요" body={`현재 오차 ±${state.accuracy}m — 100m 이하일 때 인증할 수 있어요`}>{retry}</Center>
       )}
       {state.key === 'out_of_range' && (
-        <Center title="체크포인트가 아직 멀어요" body={`${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)}`}>{retry}</Center>
+        <Center
+          title={state.distanceM <= 200 ? '거의 다 왔어요!' : '체크포인트가 아직 멀어요'}
+          body={
+            state.distanceM <= 200
+              ? `${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)}`
+              : `${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)} 남았어요`
+          }
+        >
+          {retry}
+        </Center>
       )}
       {state.key === 'no_courses' && (
         <Center title="코스 정보가 없어요" body="온라인 상태에서 산 상세를 한 번 열어두면 오프라인에서도 인증할 수 있어요" />
@@ -208,24 +219,31 @@ export default function Capture() {
 
       {state.key === 'select_course' && (
         <View style={s.selectWrap}>
-          <Text style={s.bigTitle}>도착 확인! 🏔</Text>
-          <Text style={s.body}>올라온 코스를 선택해주세요</Text>
-          {courses.map((c) => (
-            <TouchableOpacity
-              key={c.id}
-              style={[s.courseBtn, c.id === state.nearest.id && s.courseBtnNearest]}
-              onPress={() => chooseCourse(state.clientRef, c.id, c.name)}
-            >
-              <View style={s.difficultyBadge}>
-                <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
-                <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
-              </View>
-              <Text style={s.courseBtnText}>
-                {c.name}
-                {c.id === state.nearest.id ? ' (가장 가까움)' : ''}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          <View style={s.selectHeader}>
+            <Text style={s.selectTitle}>도착 확인! 🏔</Text>
+            <Text style={s.selectSub}>올라온 코스를 선택해주세요</Text>
+          </View>
+          {courses.map((c) => {
+            const isNearest = c.id === state.nearest.id;
+            return (
+              <TouchableOpacity
+                key={c.id}
+                style={[s.courseBtn, isNearest && s.courseBtnNearest]}
+                onPress={() => chooseCourse(state.clientRef, c.id, c.name)}
+              >
+                <View style={s.difficultyBadge}>
+                  <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
+                  <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
+                </View>
+                <Text style={s.courseBtnText}>{c.name}</Text>
+                {isNearest && (
+                  <View style={s.nearestTag}>
+                    <Text style={s.nearestTagText}>가장 가까움</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity style={s.laterBtn} onPress={() => chooseCourse(state.clientRef, null, null)}>
             <Text style={s.laterText}>나중에 선택할게요</Text>
           </TouchableOpacity>
@@ -233,17 +251,12 @@ export default function Capture() {
       )}
 
       {state.key === 'captured' && (
-        <Center title="인증 완료! 🎉" body={`${state.courseName ?? '코스 미선택'}\n연결되면 자동으로 제출돼요. 늦어도 다음에 앱을 열 때.`}>
-          {(meClimbs?.totalMountains ?? 0) > 0 && (
-            <Text style={s.counterText}>지금까지 {meClimbs!.totalMountains}좌 완등</Text>
-          )}
-          <TouchableOpacity style={s.btn} onPress={() => router.back()}>
-            <Text style={s.btnText}>지도로 돌아가기</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.btnOutline} onPress={() => router.navigate('/(tabs)/records')}>
-            <Text style={s.btnOutlineText}>기록 보기</Text>
-          </TouchableOpacity>
-        </Center>
+        <Captured
+          courseName={state.courseName}
+          totalMountains={meClimbs?.totalMountains ?? 0}
+          onMap={() => router.back()}
+          onRecords={() => router.navigate('/(tabs)/records')}
+        />
       )}
     </SafeAreaView>
   );
@@ -259,27 +272,95 @@ function Center({ title, body, children }: { title: string; body?: string; child
   );
 }
 
+// 감정적 핵심 — 진입 시 콘텐츠 스프링 스케일업 + 페이드, 체크 엠블럼은 살짝 늦게 팝(성공 햅틱과 동시).
+// 히어로는 그라데이션/SVG 없이 successSoft 헤일로 + success 원판 + ✓ 텍스트의 View 조합.
+function Captured({
+  courseName,
+  totalMountains,
+  onMap,
+  onRecords,
+}: {
+  courseName: string | null;
+  totalMountains: number;
+  onMap: () => void;
+  onRecords: () => void;
+}) {
+  const enter = useSharedValue(0);
+  const pop = useSharedValue(0.6);
+  useEffect(() => {
+    enter.value = withTiming(1, { duration: 260 });
+    pop.value = withDelay(90, withSpring(1, { damping: 11, stiffness: 150, mass: 0.8 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: enter.value,
+    transform: [{ scale: 0.94 + enter.value * 0.06 }],
+  }));
+  const emblemStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+
+  return (
+    <Animated.View style={[s.captured, contentStyle]}>
+      <View style={s.heroHalo}>
+        <Animated.View style={[s.heroEmblem, emblemStyle]}>
+          <Text style={s.heroCheck}>✓</Text>
+        </Animated.View>
+      </View>
+      <Text style={s.bigTitle}>인증 완료! 🎉</Text>
+      <Text style={s.body}>
+        {courseName ?? '코스 미선택'}
+        {'\n'}연결되면 자동으로 제출돼요. 늦어도 다음에 앱을 열 때.
+      </Text>
+      {totalMountains > 0 && (
+        <View style={s.counterChip}>
+          <Text style={s.counterText}>지금까지 {totalMountains}좌 완등</Text>
+        </View>
+      )}
+      <TouchableOpacity style={s.btn} onPress={onMap}>
+        <Text style={s.btnText}>지도로 돌아가기</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={s.btnOutline} onPress={onRecords}>
+        <Text style={s.btnOutlineText}>기록 보기</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: '#fff' },
+  wrap: { flex: 1, backgroundColor: C.white },
   close: { position: 'absolute', top: 48, right: 12, zIndex: 1, padding: 16 },
-  closeText: { fontSize: 24, color: '#666' },
+  closeText: { fontSize: 24, color: C.faint },
   // 상단 void 방지 — 콘텐츠를 화면 상단 ~28%에 앵커(중앙 정렬 시 '덜 만든' 느낌, 05 폴리시)
-  center: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 200, gap: 16 },
-  bigTitle: { fontSize: 26, fontWeight: '700', textAlign: 'center' },
-  body: { fontSize: 15, color: '#666', textAlign: 'center', lineHeight: 22 },
+  center: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 200, gap: SP.lg },
+  bigTitle: { fontSize: 26, fontWeight: '700', color: C.ink, textAlign: 'center' },
+  body: { fontSize: 15, color: C.body, textAlign: 'center', lineHeight: 22 },
   // 05 §5: 야외/장갑 대응 최소 56dp
-  btn: { backgroundColor: '#208AEF', borderRadius: 12, minHeight: 56, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  selectWrap: { flex: 1, padding: 24, paddingTop: 180, gap: 10 },
-  courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: '#F5F5F5', borderRadius: 12 },
-  courseBtnNearest: { borderWidth: 2, borderColor: '#208AEF' },
-  courseBtnText: { fontSize: 16, fontWeight: '500', flex: 1 },
-  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  difficultyText: { fontSize: 12, fontWeight: '600', color: '#333' },
+  btn: { backgroundColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
+  btnText: { color: C.white, fontSize: 17, fontWeight: '700' },
+  btnOutline: { borderWidth: 2, borderColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
+  btnOutlineText: { color: C.brand, fontSize: 17, fontWeight: '700' },
+
+  // captured 성공 히어로 — 콘텐츠 많아 center보다 위 앵커. 그라데이션/SVG 없이 View 조합.
+  captured: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 120, gap: SP.lg },
+  heroHalo: { width: 128, height: 128, borderRadius: 64, backgroundColor: C.successSoft, alignItems: 'center', justifyContent: 'center', marginBottom: SP.sm },
+  heroEmblem: { width: 84, height: 84, borderRadius: 42, backgroundColor: C.success, alignItems: 'center', justifyContent: 'center' },
+  heroCheck: { color: C.white, fontSize: 44, fontWeight: '700', lineHeight: 48 },
+  counterChip: { backgroundColor: C.successSoft, paddingHorizontal: 14, paddingVertical: 6, borderRadius: R.pill },
+  counterText: { fontSize: 15, fontWeight: '700', color: C.success, textAlign: 'center' },
+
+  // select_course — 좌측 정렬 헤더 + 카드 리스트(폼 아닌 '고르는' 비트)
+  selectWrap: { flex: 1, padding: 24, paddingTop: 150, gap: SP.md },
+  selectHeader: { marginBottom: SP.sm },
+  selectTitle: { fontSize: 24, fontWeight: '700', color: C.ink },
+  selectSub: { fontSize: 15, color: C.body, marginTop: SP.xs },
+  // borderColor transparent: 비-nearest도 2px 보더 유지 → nearest 강조 시 레이아웃 시프트 없음
+  courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: C.surface, borderRadius: R.card, borderWidth: 2, borderColor: 'transparent' },
+  courseBtnNearest: { backgroundColor: C.brandSoft, borderColor: C.brand },
+  courseBtnText: { fontSize: 16, fontWeight: '600', color: C.ink, flex: 1 },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 4, borderRadius: R.pill },
+  difficultyText: { fontSize: 12, fontWeight: '700', color: C.ink },
   dot: { width: 10, height: 10, borderRadius: 5 },
+  nearestTag: { backgroundColor: C.brand, paddingHorizontal: 8, paddingVertical: 3, borderRadius: R.pill },
+  nearestTagText: { color: C.white, fontSize: 11, fontWeight: '700' },
   laterBtn: { alignItems: 'center', padding: 16, minHeight: 48, justifyContent: 'center' },
-  laterText: { color: '#666', fontWeight: '500' },
-  counterText: { fontSize: 16, fontWeight: '600', color: '#208AEF', textAlign: 'center' },
-  btnOutline: { borderWidth: 2, borderColor: '#208AEF', borderRadius: 12, minHeight: 56, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
-  btnOutlineText: { color: '#208AEF', fontSize: 17, fontWeight: '700' },
+  laterText: { color: C.faint, fontWeight: '600' },
 });
