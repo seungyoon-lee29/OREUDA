@@ -45,7 +45,9 @@ export function getCachedCourses(mountainId: string): Course[] | null {
 export type Draft = {
   local_uuid: string;
   payload_json: string;
-  state: 'queued' | 'uploading' | 'confirmed' | 'failed_permanent';
+  // awaiting_course: 캡처는 durable하나 코스 선택 전이라 아직 제출 큐에 없음 (flush 제외).
+  //   선택/닫기/콜드스타트에서 queued로 승격. 04 §4.1 'insert=captured 시점' 계약.
+  state: 'awaiting_course' | 'queued' | 'uploading' | 'failed_permanent';
   attempt_count: number;
   last_attempt_at: string | null;
   last_error: string | null;
@@ -62,12 +64,40 @@ export function subscribeOutbox(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-export function insertDraft(payload: ClimbPayload) {
+// 04 §4.1: 로컬 판정 통과 즉시 insert = 성공(captured) 시점. courseId는 아직 null.
+// state='awaiting_course'라 코스 선택 창 동안 flush(=제출) 대상이 아니다 —
+// 네트워크 재연결 트리거가 코스 선택 전에 courseId=null로 조기 제출하는 레이스를 차단.
+export function insertCapture(payload: ClimbPayload) {
   db.runSync(
     'INSERT INTO climb_drafts (local_uuid, payload_json, state, captured_at) VALUES (?, ?, ?, ?)',
-    [payload.clientRef, JSON.stringify(payload), 'queued', payload.capturedAt],
+    [payload.clientRef, JSON.stringify(payload), 'awaiting_course', payload.capturedAt],
   );
-  emit(); // 축하 연출 트리거 = insert 완료 (04 §4.1)
+  emit(); // 성공 연출 트리거 = 캡처 durable (04 §4.1)
+}
+
+// 코스 선택 → payload에 courseId 부착하고 제출 큐로 승격.
+export function attachCourse(clientRef: string, courseId: string) {
+  const row = db.getFirstSync<{ payload_json: string }>(
+    'SELECT payload_json FROM climb_drafts WHERE local_uuid = ?',
+    [clientRef],
+  );
+  if (!row) return;
+  const payload = JSON.parse(row.payload_json);
+  payload.courseId = courseId;
+  db.runSync(
+    "UPDATE climb_drafts SET payload_json = ?, state = 'queued' WHERE local_uuid = ? AND state = 'awaiting_course'",
+    [JSON.stringify(payload), clientRef],
+  );
+  emit();
+}
+
+// "나중에 선택" / 위저드 닫기 → courseId=null 그대로 제출 큐로 승격.
+export function finalizeCapture(clientRef: string) {
+  db.runSync(
+    "UPDATE climb_drafts SET state = 'queued' WHERE local_uuid = ? AND state = 'awaiting_course'",
+    [clientRef],
+  );
+  emit();
 }
 
 export function deleteDraft(clientRef: string) {
@@ -108,8 +138,16 @@ export async function flush() {
         [new Date().toISOString(), d.local_uuid],
       );
       emit();
+      // 약신호(산)에서 POST가 무한정 매달리면 inFlight를 영구 점유해 이후 flush가 전부 막힌다.
+      // 20s 타임아웃으로 abort → 네트워크 오류로 취급되어 queued 재큐, 다음 트리거에서 재시도.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20_000);
       try {
-        const res = await api('/climbs', { method: 'POST', body: d.payload_json });
+        const res = await api('/climbs', {
+          method: 'POST',
+          body: d.payload_json,
+          signal: controller.signal,
+        });
         ClimbResponseSchema.parse(res); // 계약 검증(파싱 실패=5xx 취급으로 재큐)
         // 확정된 초안은 삭제 — 완등은 me/climbs(verified SSOT)로 이관되므로 보관 불필요.
         // ponytail: 서버 결과 로컬 보관 안 함(무한 누적 방지). 필요해지면 confirmed 상태 부활.
@@ -122,12 +160,14 @@ export async function flush() {
             [`${e.code}: ${e.message}`, d.local_uuid],
           );
         } else {
-          // 5xx/네트워크 → queued 유지, 다음 트리거 대기
+          // 5xx/네트워크/abort → queued 유지, 다음 트리거 대기
           db.runSync(
             "UPDATE climb_drafts SET state = 'queued', last_error = ? WHERE local_uuid = ?",
             [String(e), d.local_uuid],
           );
         }
+      } finally {
+        clearTimeout(timeout);
       }
       emit();
     }
@@ -140,6 +180,11 @@ export async function flush() {
 // 트리거 배선 (04 §6 ①): 콜드스타트 1회 + AppState active 복귀 + NetInfo 연결 회복
 export function wireOutbox(qc: QueryClient) {
   queryClient = qc;
+  // 콜드스타트 크래시 복구: 재시작 시점엔 실제 in-flight 업로드가 존재할 수 없으므로
+  //  - awaiting_course: 코스 선택 전에 앱이 죽어 stranded된 미완결 캡처 → queued 승격(courseId=null 폴백)
+  //  - uploading: flush 중(POST await 도중) 프로세스가 죽어 갇힌 초안 → 재큐잉.
+  //    서버가 client_ref 멱등이라(§6) 원본이 실제로 도달했어도 재-POST는 replay로 안전 reconcile.
+  db.runSync("UPDATE climb_drafts SET state = 'queued' WHERE state IN ('awaiting_course', 'uploading')");
   flush();
   AppState.addEventListener('change', (s) => {
     if (s === 'active') flush();

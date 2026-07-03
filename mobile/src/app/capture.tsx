@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -7,7 +7,7 @@ import * as Crypto from 'expo-crypto';
 import { api } from '@/lib/api';
 import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
-import { cacheCourses, flush, getCachedCourses, insertDraft } from '@/lib/outbox';
+import { attachCourse, cacheCourses, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL } from '@/lib/colored';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
@@ -19,7 +19,7 @@ type WizardState =
   | { key: 'fix_failed' }
   | { key: 'low_accuracy'; accuracy: number }
   | { key: 'out_of_range'; distanceM: number; courseName: string }
-  | { key: 'select_course'; nearest: Course; captured: CapturedFix }
+  | { key: 'select_course'; nearest: Course; clientRef: string }
   | { key: 'captured'; clientRef: string; courseName: string | null }
   | { key: 'no_courses' };
 
@@ -30,8 +30,15 @@ export default function Capture() {
   const router = useRouter();
   const [state, setState] = useState<WizardState>({ key: 'requesting_permission' });
   const [courses, setCourses] = useState<Course[]>([]);
+  // 진행 중 미확정 캡처(awaiting_course)의 clientRef. 모든 이탈 경로에서 finalize를 보장하는
+  // 단일 소스 + 코스 더블탭 idempotency 가드. runningRef는 start() 재진입(재시도 더블탭) 차단.
+  const pendingRef = useRef<string | null>(null);
+  const runningRef = useRef(false);
 
   const start = async () => {
+    if (runningRef.current) return; // 동시 재진입 차단 → clientRef 이중 생성(중복 제출) 방지
+    runningRef.current = true;
+    try {
     setState({ key: 'requesting_permission' });
 
     // 프리페치 캐시 우선, 없으면 온라인 fetch (오프라인 정상에서는 캐시가 있어야 함)
@@ -93,7 +100,14 @@ export default function Capture() {
         courseName: nearest.course.name,
       });
 
-    setState({ key: 'select_course', nearest: nearest.course, captured: fix });
+    // 04 §4.1: 판정 통과 = 성공. 코스 선택 전에 즉시 durable 저장 → 여기서 이탈해도 캡처 보존.
+    const clientRef = Crypto.randomUUID();
+    pendingRef.current = clientRef; // 이탈 시 언마운트 이펙트가 finalize할 대상
+    insertCapture({ courseId: null, clientRef, ...fix });
+    setState({ key: 'select_course', nearest: nearest.course, clientRef });
+    } finally {
+      runningRef.current = false;
+    }
   };
 
   useEffect(() => {
@@ -103,12 +117,31 @@ export default function Capture() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const confirmCourse = (courseId: string | null, courseName: string | null, captured: CapturedFix) => {
-    const clientRef = Crypto.randomUUID();
-    insertDraft({ courseId, clientRef, ...captured }); // 성공의 정의 = insert 완료 (04 §4.1)
+  // 모든 이탈 경로(✕/하드웨어 뒤로/스와이프 dismiss/프로그램 이동)는 언마운트로 수렴한다.
+  // 미확정 캡처(pendingRef)를 finalize해 제출 큐로 승격 → warm 상태에서도 유실 없음.
+  // pendingRef는 코스 선택/미선택 확정 시 null로 비워지므로 여기서 no-op.
+  useEffect(
+    () => () => {
+      if (pendingRef.current) {
+        finalizeCapture(pendingRef.current);
+        flush();
+      }
+    },
+    [],
+  );
+
+  // 이미 durable한 캡처(clientRef)에 코스를 부착(또는 미선택 확정)하고 제출 큐로 승격.
+  const chooseCourse = (clientRef: string, courseId: string | null, courseName: string | null) => {
+    if (pendingRef.current !== clientRef) return; // 이미 확정/이탈 — 코스 더블탭 무시
+    pendingRef.current = null;
+    if (courseId) attachCourse(clientRef, courseId);
+    else finalizeCapture(clientRef);
     setState({ key: 'captured', clientRef, courseName });
     flush(); // 온라인이면 즉시 제출 시도
   };
+
+  // 언마운트 이펙트가 미확정 캡처를 finalize하므로 닫기는 이동만.
+  const close = () => router.back();
 
   const retry = (
     <TouchableOpacity style={s.btn} onPress={start}>
@@ -118,7 +151,7 @@ export default function Capture() {
 
   return (
     <SafeAreaView style={s.wrap}>
-      <TouchableOpacity style={s.close} onPress={() => router.back()}>
+      <TouchableOpacity style={s.close} onPress={close}>
         <Text style={s.closeText}>✕</Text>
       </TouchableOpacity>
 
@@ -151,7 +184,7 @@ export default function Capture() {
             <TouchableOpacity
               key={c.id}
               style={[s.courseBtn, c.id === state.nearest.id && s.courseBtnNearest]}
-              onPress={() => confirmCourse(c.id, c.name, state.captured)}
+              onPress={() => chooseCourse(state.clientRef, c.id, c.name)}
             >
               <View style={s.difficultyBadge}>
                 <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
@@ -163,7 +196,7 @@ export default function Capture() {
               </Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={s.laterBtn} onPress={() => confirmCourse(null, null, state.captured)}>
+          <TouchableOpacity style={s.laterBtn} onPress={() => chooseCourse(state.clientRef, null, null)}>
             <Text style={s.laterText}>나중에 선택할게요</Text>
           </TouchableOpacity>
         </View>
