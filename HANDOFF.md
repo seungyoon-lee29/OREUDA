@@ -1,3 +1,31 @@
+# 핸드오프 — 2026-07-06 (기능 확충 v0.5)
+
+## 방금 한 것 (커밋 419a5e2, 로컬 — push 필요)
+멀티에이전트 병렬(기획·디자인·데이터·FE×3·풀스택·리뷰)로 기능 확충 + Summit Precision 다크 전환. 22파일 +1366/−155.
+- **데이터**: `supabase/seed_seoul.sql` = OSM Overpass 실경로 **16산 42코스**(seed.sql 패턴 준수). 재실행 ETL `supabase/etl/`(validate 6/6). `etl/data/`는 gitignore.
+- **기능(P0, 신규 네이티브 의존성 0)**: 네비식 코스 선택(index.tsx: selectedCourseId/카메라 fit/양방향 시트/해제 제스처, colored.ts lineStyle emphasis+glow), 산 탐색(`GET /mountains`+search.tsx 모달), 내 위치 버튼, 기록→지도 점프(focus 파라미터 계약).
+- **디자인**: theme.ts 다크(Deep Granite+Summit Green+MONO, 토큰명 호환), 지도 Navi 야간모드, Okabe-Ito hue 유지 밝기 리프트. capture 성공 모먼트만 그림자.
+- **검증 그린**: mobile tsc 0 / 단위 8 / api 3 / seed validate 6. code-reviewer BLOCKER·HIGH 0, MEDIUM(재탭 무동작)·LOW(preselect 폴백) 수정 완료.
+- 스펙 문서: `scratchpad/plan-pm.md` · `design-spec.md` · `data-report.md`.
+
+## 시드 DB 적용 완료 (2026-07-06)
+seed_seoul.sql을 프로덕션 Supabase에 적용 → **mountains 19 / courses 50**(기존 3산8코스 + 서울 16산42코스). `/v1/courses` 200·50코스 확인. 앱 지도에 서울 산 렌더 확인.
+
+## 패스 1 런타임 검증 완료 (2026-07-06, /polish 1)
+iOS 시뮬(D361BEDF) 딥링크+위치위조+스샷으로 다크 전환·신기능 눈검증. 스샷 `scratchpad/p1-*.png`.
+- **통과**: 다크 지도(Navi 야간모드)+서울 산 마커+회색 코스선+검색 pill+탭바 초록 액티브 / 검색 모달 다크 / 기록 탭 다크(히어로 MONO·완등카드·지도점프 힌트) / 캡처 select_course 다크(+preselect 폴백: 가짜 courseId→nearest 강조 정상) / **완등 성공(captured) 다크 프리미엄 — successSoft 헤일로+그린 글로우 "floating trophy"+"1좌 완등" MONO 칩, 감정 핵심 살아있음** / 거리밖 거절 다크 절제모드(8.3km, 판정 정상).
+- **런타임에서 찾아 고침**: `search.test.js`가 `src/app/`에 있어 expo-router가 라우트로 로드→`node:test` 미해결로 **앱 전체 크래시**(tsc/node테스트로 안 잡히고 런타임에서만 드러남). → `src/lib/search.test.js`로 이동. **app 디렉토리엔 .test/.spec 두지 말 것**(colored.test.js는 lib라 안전).
+
+## Fly 재배포 완료 (2026-07-06)
+`GET /v1/mountains` 배포 → 200·19산·courseCount 숫자. 헬스체크 200, 프로덕션 스모크 **18/18**(courses bbox 체크를 고정값 8→하한 `>=8`으로 수정: 시드 확충 반영). 스모크 테스트 데이터 정리(climbs 12·users 3 삭제). **앱 검색 화면 데이터 렌더 확인**(지역 그룹+고도+코스수, `scratchpad/p1-08-search-ok.png`). 검색 블로커 해소 → 패스1 종료.
+
+## 다음 할 것 (우선순위)
+1. **미눈검증(코드 신뢰)**: login/signup 다크(FE-C 적용+tsc 통과, 로그아웃 사이클 번거로워 생략) — 재로그인 시 확인.
+2. **패스2(디자인 100x) 후보**: 초록 checkpoint 마커가 미완등에도 초록 기본핀이라 "완등" 오해 소지(미완등=중립색/verified만 초록으로 이중인코딩 강화). 우상단 톱니는 expo-dev-client 오버레이(프로덕션 없음, 무관).
+3. `.mcp.json`은 커밋 제외(세션 시작부터 로컬 변경, 작업 무관).
+
+---
+
 # 핸드오프 — 2026-07-03
 
 ## 지금 상태

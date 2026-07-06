@@ -10,7 +10,8 @@ const ok = (name, cond, extra = '') => {
 
 // 1. public courses
 const courses = await fetch(`${B}/courses?bbox=126.9,37.4,127.11,37.7&zoom=12`).then(j);
-ok('courses bbox', Array.isArray(courses) && courses.length === 8, `${courses.length} courses`);
+// 시드 확충으로 코스 수는 변동 — 고정값 대신 하한(반환 계약: 서울 bbox에 코스 존재)
+ok('courses bbox', Array.isArray(courses) && courses.length >= 8, `${courses.length} courses`);
 const baegundae = courses.find((c) => c.name === '백운대 코스');
 ok('course payload contract',
   !!baegundae?.checkpointPoint?.coordinates && baegundae?.verifyRadiusM === 150 &&
