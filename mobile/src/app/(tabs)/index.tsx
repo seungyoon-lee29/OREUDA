@@ -29,6 +29,9 @@ import { C, R, SP } from '@/lib/theme';
 // 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
 const LINE_ZOOM_IN = 11.5;
 const LINE_ZOOM_OUT = 10.5;
+// 얇은 코스선(w3~6)은 손가락으로 맞히기 어렵다. 투명 넓은 폴리라인을 위에 겹쳐 탭 타겟만 넓힌다.
+const HIT_WIDTH = 44; // 44dp = iOS 최소 터치 타겟
+const HIT_COLOR = '#00000001'; // 사실상 투명(alpha 0은 렌더 스킵될 수 있어 1/255)
 // NativeTabs(플로팅)는 높이 훅이 없어 상수로 클리어 — safe-area 인셋 위로 이만큼 띄운다(추천 카드 겹침 방지)
 const TABBAR_CLEARANCE = 88;
 
@@ -209,23 +212,26 @@ export default function MapScreen() {
               ? 'selected'
               : 'dimmed';
             const st = lineStyle(lineState(c), c.difficulty, emphasis);
+            const coords = c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
             return (
               <Fragment key={c.id}>
                 {/* verified glow 언더레이 — §2: zIndex 본선(1)보다 낮게(0) */}
                 {st.glow && (
-                  <NaverMapPolylineOverlay
-                    coords={c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))}
-                    width={st.glow.width}
-                    color={st.glow.color}
-                    zIndex={0}
-                  />
+                  <NaverMapPolylineOverlay coords={coords} width={st.glow.width} color={st.glow.color} zIndex={0} />
                 )}
                 <NaverMapPolylineOverlay
-                  coords={c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))}
+                  coords={coords}
                   width={st.width}
                   color={st.color}
                   pattern={st.pattern}
                   zIndex={1}
+                />
+                {/* 투명 넓은 탭 히트영역 — 본선 위(zIndex 2)라 탭을 먼저 잡는다. selectCourse=미리보기 */}
+                <NaverMapPolylineOverlay
+                  coords={coords}
+                  width={HIT_WIDTH}
+                  color={HIT_COLOR}
+                  zIndex={2}
                   onTap={() => selectCourse(c)}
                 />
               </Fragment>
