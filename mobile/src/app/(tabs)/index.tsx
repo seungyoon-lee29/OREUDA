@@ -231,21 +231,8 @@ export default function MapScreen() {
               </Fragment>
             );
           })}
-        {/* rank10: 고줌=코스별 checkpoint 마커. P0-1: 코스 선택 시 비선택 마커 숨김(렌더 스킵) */}
-        {showLines &&
-          courses?.map((c) => {
-            if (selectedCourseId && c.id !== selectedCourseId) return null;
-            return (
-              <NaverMapMarkerOverlay
-                key={`cp-${c.id}`}
-                latitude={c.checkpointPoint.coordinates[1]}
-                longitude={c.checkpointPoint.coordinates[0]}
-                width={20}
-                height={20}
-                onTap={() => openMountain(c.mountainId)}
-              />
-            );
-          })}
+        {/* 고줌 checkpoint 마커는 제거 — 여러 코스가 정상점을 공유해 핀이 겹치고, 마커가 코스선 끝을
+            덮어 라인 탭(selectCourse=미리보기)을 가로챘다. 이제 코스 선택은 라인 탭이 유일 경로. */}
         {/* rank10: 저줌=산 단위 집약 마커(정복=green+✓ / 미정복=gray, 색+아이콘+텍스트 이중 인코딩) */}
         {!showLines &&
           mountainMarkers.map((m) => {
