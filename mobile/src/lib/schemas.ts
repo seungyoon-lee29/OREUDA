@@ -64,6 +64,19 @@ export const ClimbResponseSchema = z.object({
 });
 export type ClimbResponse = z.infer<typeof ClimbResponseSchema>;
 
+// 탐색 목록 — GET /mountains 응답 (P0-2, 풀스택 계약)
+export const MountainsListSchema = z.array(
+  z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    region: z.string().nullable(),
+    elevationM: z.number().nullable(),
+    summitPoint: PointSchema,
+    courseCount: z.number(),
+  }),
+);
+export type MountainsListItem = z.infer<typeof MountainsListSchema>[number];
+
 export const MeClimbsSchema = z.object({
   totalMountains: z.number(),
   totalClimbs: z.number(),

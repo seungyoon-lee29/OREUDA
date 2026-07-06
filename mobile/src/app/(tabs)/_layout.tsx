@@ -1,8 +1,10 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { C } from '@/lib/theme';
 
 export default function TabsLayout() {
   return (
-    <NativeTabs>
+    // ponytail: iconColor.selected = 액티브 탭 그린 tint (iOS/Android 공통 prop — design §4 탭바)
+    <NativeTabs iconColor={{ selected: C.success }}>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>지도</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

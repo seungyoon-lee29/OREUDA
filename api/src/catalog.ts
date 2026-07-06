@@ -39,6 +39,18 @@ export class CatalogController {
     );
   }
 
+  // public read — ponytail: no pagination, 20 mountains max
+  @Get('mountains')
+  async mountains() {
+    return this.db.query(
+      `select m.id, m.name, m.region, m.elevation_m as "elevationM",
+         st_asgeojson(m.summit_point)::json as "summitPoint",
+         count(c.id)::int as "courseCount"
+       from mountains m left join courses c on c.mountain_id = m.id
+       group by m.id order by m.name`,
+    );
+  }
+
   @Get('mountains/:id')
   async mountain(@Param('id', ParseUUIDPipe) id: string) {
     const [mountain] = await this.db.query(

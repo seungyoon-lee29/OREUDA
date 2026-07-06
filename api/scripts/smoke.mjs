@@ -16,6 +16,10 @@ ok('course payload contract',
   !!baegundae?.checkpointPoint?.coordinates && baegundae?.verifyRadiusM === 150 &&
   baegundae?.path?.type === 'LineString');
 
+// 1b. GET /mountains list
+const mtns = await fetch(`${B}/mountains`).then(j);
+ok('mountains list', Array.isArray(mtns) && mtns.length > 0 && typeof mtns[0].courseCount === 'number', `${mtns.length} mountains, courseCount=${mtns[0]?.courseCount}`);
+
 // 2. bad bbox → 400 envelope
 const bad = await fetch(`${B}/courses?bbox=oops`);
 const badBody = await bad.json();

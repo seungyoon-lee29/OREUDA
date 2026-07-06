@@ -11,7 +11,7 @@ import { haversineM } from '@/lib/geo';
 import { attachCourse, cacheCourses, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
-import { C, R, SP, CTA_H } from '@/lib/theme';
+import { C, R, SP, CTA_H, MONO } from '@/lib/theme';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
 // ponytail: 단일 화면 세션 상태라 Zustand 대신 useState — 화면 밖에서 구독할 소비자가 없다
@@ -33,7 +33,7 @@ type CapturedFix = { lat: number; lng: number; accuracyM: number; isMock: boolea
 const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`);
 
 export default function Capture() {
-  const { mountainId } = useLocalSearchParams<{ mountainId: string }>();
+  const { mountainId, courseId: preselectCourseId } = useLocalSearchParams<{ mountainId: string; courseId?: string }>();
   const router = useRouter();
   const [state, setState] = useState<WizardState>({ key: 'requesting_permission' });
   const [courses, setCourses] = useState<Course[]>([]);
@@ -224,11 +224,18 @@ export default function Capture() {
             <Text style={s.selectSub}>올라온 코스를 선택해주세요</Text>
           </View>
           {courses.map((c) => {
-            const isNearest = c.id === state.nearest.id;
+            // PM §P0-1: courseId 파라미터 있으면 해당 코스를 preselect 강조(nearest 판정 불변)
+            // preselect가 리스트에 있을 때만 강조, 없으면 nearest로 폴백('가장 가까움' 힌트 유지)
+            const highlightId =
+              preselectCourseId && courses.some((x) => x.id === preselectCourseId)
+                ? preselectCourseId
+                : state.nearest.id;
+            const isHighlighted = c.id === highlightId;
+            const tagLabel = preselectCourseId && c.id === preselectCourseId ? '선택된 코스' : '가장 가까움';
             return (
               <TouchableOpacity
                 key={c.id}
-                style={[s.courseBtn, isNearest && s.courseBtnNearest]}
+                style={[s.courseBtn, isHighlighted && s.courseBtnNearest]}
                 onPress={() => chooseCourse(state.clientRef, c.id, c.name)}
               >
                 <View style={s.difficultyBadge}>
@@ -236,9 +243,9 @@ export default function Capture() {
                   <Text style={s.difficultyText}>{DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}</Text>
                 </View>
                 <Text style={s.courseBtnText}>{c.name}</Text>
-                {isNearest && (
+                {isHighlighted && (
                   <View style={s.nearestTag}>
-                    <Text style={s.nearestTagText}>가장 가까움</Text>
+                    <Text style={s.nearestTagText}>{tagLabel}</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -326,41 +333,41 @@ function Captured({
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: C.white },
+  wrap: { flex: 1, backgroundColor: C.bg },
   close: { position: 'absolute', top: 48, right: 12, zIndex: 1, padding: 16 },
   closeText: { fontSize: 24, color: C.faint },
   // 상단 void 방지 — 콘텐츠를 화면 상단 ~28%에 앵커(중앙 정렬 시 '덜 만든' 느낌, 05 폴리시)
   center: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 200, gap: SP.lg },
   bigTitle: { fontSize: 26, fontWeight: '700', color: C.ink, textAlign: 'center' },
   body: { fontSize: 15, color: C.body, textAlign: 'center', lineHeight: 22 },
-  // 05 §5: 야외/장갑 대응 최소 56dp
+  // 05 §5: 야외/장갑 대응 최소 56dp. brand 버튼 위 텍스트는 반드시 onBrand(흰 위 흰 방지).
   btn: { backgroundColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
-  btnText: { color: C.white, fontSize: 17, fontWeight: '700' },
-  btnOutline: { borderWidth: 2, borderColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
-  btnOutlineText: { color: C.brand, fontSize: 17, fontWeight: '700' },
+  btnText: { color: C.onBrand, fontSize: 17, fontWeight: '700' },
+  btnOutline: { borderWidth: 2, borderColor: C.border, borderRadius: R.btn, minHeight: CTA_H, paddingHorizontal: 28, justifyContent: 'center', alignItems: 'center' },
+  btnOutlineText: { color: C.ink, fontSize: 17, fontWeight: '700' },
 
-  // captured 성공 히어로 — 콘텐츠 많아 center보다 위 앵커. 그라데이션/SVG 없이 View 조합.
-  captured: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 120, gap: SP.lg },
+  // captured — 앱 전체 유일한 그림자 허용(성공 모먼트 "floating trophy", design §4)
+  captured: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 120, gap: SP.lg, shadowColor: C.success, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12 },
   heroHalo: { width: 128, height: 128, borderRadius: 64, backgroundColor: C.successSoft, alignItems: 'center', justifyContent: 'center', marginBottom: SP.sm },
   heroEmblem: { width: 84, height: 84, borderRadius: 42, backgroundColor: C.success, alignItems: 'center', justifyContent: 'center' },
-  heroCheck: { color: C.white, fontSize: 44, fontWeight: '700', lineHeight: 48 },
+  heroCheck: { color: '#0C0E10', fontSize: 44, fontWeight: '700', lineHeight: 48 },
   counterChip: { backgroundColor: C.successSoft, paddingHorizontal: 14, paddingVertical: 6, borderRadius: R.pill },
-  counterText: { fontSize: 15, fontWeight: '700', color: C.success, textAlign: 'center' },
+  counterText: { fontSize: 15, fontWeight: '700', color: C.success, textAlign: 'center', fontFamily: MONO },
 
   // select_course — 좌측 정렬 헤더 + 카드 리스트(폼 아닌 '고르는' 비트)
   selectWrap: { flex: 1, padding: 24, paddingTop: 150, gap: SP.md },
   selectHeader: { marginBottom: SP.sm },
   selectTitle: { fontSize: 24, fontWeight: '700', color: C.ink },
   selectSub: { fontSize: 15, color: C.body, marginTop: SP.xs },
-  // borderColor transparent: 비-nearest도 2px 보더 유지 → nearest 강조 시 레이아웃 시프트 없음
-  courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: C.surface, borderRadius: R.card, borderWidth: 2, borderColor: 'transparent' },
-  courseBtnNearest: { backgroundColor: C.brandSoft, borderColor: C.brand },
+  // 2px 투명 트릭 유지(레이아웃 시프트 방지), 기본 borderColor는 C.border(다크 윤곽)
+  courseBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, backgroundColor: C.surface, borderRadius: R.card, borderWidth: 2, borderColor: C.border },
+  courseBtnNearest: { backgroundColor: C.brandSoft, borderColor: C.success },
   courseBtnText: { fontSize: 16, fontWeight: '600', color: C.ink, flex: 1 },
-  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 4, borderRadius: R.pill },
-  difficultyText: { fontSize: 12, fontWeight: '700', color: C.ink },
+  difficultyBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.surfaceHigh, paddingHorizontal: 8, paddingVertical: 4, borderRadius: R.pill },
+  difficultyText: { fontSize: 12, fontWeight: '700', color: C.body },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  nearestTag: { backgroundColor: C.brand, paddingHorizontal: 8, paddingVertical: 3, borderRadius: R.pill },
-  nearestTagText: { color: C.white, fontSize: 11, fontWeight: '700' },
+  nearestTag: { backgroundColor: C.success, paddingHorizontal: 8, paddingVertical: 3, borderRadius: R.pill },
+  nearestTagText: { color: '#0C0E10', fontSize: 11, fontWeight: '700' },
   laterBtn: { alignItems: 'center', padding: 16, minHeight: 48, justifyContent: 'center' },
   laterText: { color: C.faint, fontWeight: '600' },
 });

@@ -1,16 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { logout } from '@/lib/api';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
-import { C, R, SP } from '@/lib/theme';
-
-// ponytail: amber·divider는 C 미등록 — 이 화면용 로컬 const
-const AMBER_SOFT = '#FFF8E1';
-const AMBER_TEXT = '#7C5800';
-const DIVIDER_CLR = '#D1D5DB';
+import { C, MONO, R, SP } from '@/lib/theme';
 
 function useDrafts(): Draft[] {
   const [rows, setRows] = useState<Draft[]>(() => listDrafts(['queued', 'uploading', 'failed_permanent']));
@@ -22,12 +18,13 @@ function useDrafts(): Draft[] {
 }
 
 export default function Records() {
+  const router = useRouter();
   const drafts = useDrafts();
   const { data, isLoading, isError, refetch } = useMeClimbs();
   const setAuthed = useSession((s) => s.setAuthed);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
       {/* 헤더 */}
       <View style={s.header}>
         <Text style={s.title}>기록</Text>
@@ -36,7 +33,7 @@ export default function Records() {
         </TouchableOpacity>
       </View>
 
-      {/* 스탯 히어로 — 완등한 산이 주인공 */}
+      {/* 스탯 히어로 — 완등한 산이 주인공, MONO 그린 숫자 */}
       {data && (
         <View style={s.hero}>
           <View style={s.heroMain}>
@@ -85,7 +82,21 @@ export default function Records() {
         keyExtractor={(c) => c.climbId}
         contentContainerStyle={s.listContent}
         renderItem={({ item }) => (
-          <View style={s.card}>
+          // P0-4: mountain.id 있는 카드만 탭 가능 — 지도로 점프
+          <TouchableOpacity
+            style={s.card}
+            disabled={!item.mountain?.id}
+            onPress={() => {
+              if (!item.mountain?.id) return;
+              router.navigate({
+                pathname: '/',
+                params: {
+                  focusMountainId: item.mountain.id,
+                  ...(item.courseId ? { focusCourseId: item.courseId } : {}),
+                },
+              });
+            }}
+          >
             {/* 난이도 뱃지 + 인증 상태 칩 */}
             <View style={s.cardHeader}>
               {item.course?.difficulty && (
@@ -108,13 +119,15 @@ export default function Records() {
                 ? `${item.mountain?.name ?? '산'} · ${item.course.name}`
                 : '위치 인증 완료'}
             </Text>
-            {/* 날짜 메타 */}
+            {/* 날짜 메타 (MONO) */}
             <Text style={s.cardMeta}>{item.climbedOn}</Text>
-          </View>
+            {/* 지도 점프 힌트 — mountain.id 있는 카드만 */}
+            {item.mountain?.id && <Text style={s.mapHint}>→ 지도에서 보기</Text>}
+          </TouchableOpacity>
         )}
         ListEmptyComponent={
           isLoading ? (
-            <ActivityIndicator style={{ marginTop: 40 }} color={C.brand} />
+            <ActivityIndicator style={{ marginTop: 40 }} color={C.ink} />
           ) : isError ? (
             <TouchableOpacity style={s.errorBox} onPress={() => refetch()}>
               <Text style={s.errorText}>기록을 불러오지 못했어요. 눌러서 다시 시도</Text>
@@ -141,7 +154,7 @@ const s = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', color: C.ink },
   logout: { fontSize: 15, fontWeight: '500', color: C.faint },
 
-  // ── 스탯 히어로
+  // ── 스탯 히어로 — surfaceDeep + border + MONO 숫자
   hero: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -149,53 +162,57 @@ const s = StyleSheet.create({
     marginBottom: SP.lg,
     paddingVertical: SP.xl,
     paddingHorizontal: SP.xl,
-    backgroundColor: C.brandSoft,
+    backgroundColor: C.surfaceDeep,
     borderRadius: R.card,
+    borderWidth: 1,
+    borderColor: C.border,
   },
   heroMain: { flex: 3, alignItems: 'center', gap: SP.xs },
   heroNum: {
     fontSize: 52,
     fontWeight: '800',
-    color: C.brand,
+    color: C.success,
     lineHeight: 58,
     fontVariant: ['tabular-nums'],
+    fontFamily: MONO,
   },
-  heroMainLabel: { fontSize: 13, fontWeight: '600', color: C.body },
+  heroMainLabel: { fontSize: 13, fontWeight: '600', color: C.faint, letterSpacing: 1 },
   heroDivider: {
     width: 1,
     height: 48,
-    backgroundColor: DIVIDER_CLR,
+    backgroundColor: C.border,
     marginHorizontal: SP.lg,
   },
   heroSub: { flex: 2, alignItems: 'center', gap: SP.xs },
   heroSubNum: {
     fontSize: 36,
     fontWeight: '700',
-    color: C.body,
+    color: C.ink,
     lineHeight: 42,
     fontVariant: ['tabular-nums'],
+    fontFamily: MONO,
   },
-  heroSubLabel: { fontSize: 13, fontWeight: '500', color: C.faint },
+  heroSubLabel: { fontSize: 13, fontWeight: '500', color: C.faint, letterSpacing: 1 },
 
-  // ── 전송 대기 박스
+  // ── 전송 대기 박스 — 오렌지 틴트 다크
   pendingBox: {
     marginHorizontal: SP.lg,
     marginBottom: SP.md,
     padding: SP.md,
-    backgroundColor: AMBER_SOFT,
+    backgroundColor: '#2A2016',
     borderRadius: R.card,
     gap: SP.sm,
   },
-  pendingTitle: { fontSize: 14, fontWeight: '700', color: AMBER_TEXT },
+  pendingTitle: { fontSize: 14, fontWeight: '700', color: C.dangerText },
   pendingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  pendingText: { fontSize: 13, color: AMBER_TEXT, flex: 1, opacity: 0.85 },
+  pendingText: { fontSize: 13, color: C.dangerText, flex: 1, opacity: 0.85 },
   deleteBtn: { fontSize: 13, fontWeight: '600', color: C.danger, paddingLeft: SP.sm },
 
-  // ── 완등 카드
+  // ── 완등 카드 — 플랫 보더, 탭 가능(P0-4)
   listContent: {
     paddingHorizontal: SP.lg,
     paddingTop: SP.xs,
@@ -206,6 +223,8 @@ const s = StyleSheet.create({
     padding: SP.lg,
     backgroundColor: C.surface,
     borderRadius: R.card,
+    borderWidth: 1,
+    borderColor: C.border,
     gap: SP.xs,
   },
   cardHeader: {
@@ -226,10 +245,11 @@ const s = StyleSheet.create({
   verifiedChipText: { fontSize: 11, fontWeight: '700', color: C.success },
   alreadyText: { fontSize: 12, fontWeight: '500', color: C.faint },
   cardTitle: { fontSize: 16, fontWeight: '700', color: C.ink },
-  cardMeta: { fontSize: 13, fontWeight: '400', color: C.faint },
+  cardMeta: { fontSize: 13, fontWeight: '400', color: C.faint, fontFamily: MONO },
+  mapHint: { fontSize: 12, color: C.faint, marginTop: SP.xs },
 
   // ── 빈/에러
   empty: { textAlign: 'center', fontSize: 15, color: C.faint, marginTop: 40 },
   errorBox: { marginTop: 40, alignItems: 'center', padding: SP.lg },
-  errorText: { fontWeight: '500', color: C.danger, textAlign: 'center' },
+  errorText: { fontWeight: '500', color: C.dangerText, textAlign: 'center' },
 });

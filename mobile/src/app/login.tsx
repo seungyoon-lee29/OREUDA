@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { login } from '@/lib/api';
 import { useSession } from '@/lib/stores';
+import { C, R, CTA_H } from '@/lib/theme';
 
 // 폼 라이브러리 채택 안 함 — controlled input 2개로 충분 (04 §2 의도적 결정)
 export default function Login() {
@@ -30,8 +31,8 @@ export default function Login() {
   return (
     <KeyboardAvoidingView style={s.wrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Text style={s.title}>등산 앱</Text>
-      <TextInput style={s.input} placeholder="이메일" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-      <TextInput style={s.input} placeholder="비밀번호" secureTextEntry value={password} onChangeText={setPassword} />
+      <TextInput style={s.input} placeholder="이메일" placeholderTextColor={C.faint} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+      <TextInput style={s.input} placeholder="비밀번호" placeholderTextColor={C.faint} secureTextEntry value={password} onChangeText={setPassword} />
       {!!error && <Text style={s.error}>{error}</Text>}
       <TouchableOpacity style={s.btn} onPress={submit} disabled={busy}>
         <Text style={s.btnText}>{busy ? '...' : '로그인'}</Text>
@@ -42,11 +43,12 @@ export default function Login() {
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, justifyContent: 'center', padding: 24, gap: 12, backgroundColor: '#fff' },
-  title: { fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 16 },
-  btn: { backgroundColor: '#208AEF', borderRadius: 10, padding: 16, alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  error: { color: '#d32f2f' },
-  link: { textAlign: 'center', color: '#208AEF', marginTop: 8 },
+  wrap: { flex: 1, justifyContent: 'center', padding: 24, gap: 12, backgroundColor: C.bg },
+  title: { fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 16, color: C.ink },
+  // 다크 인풋: surfaceHigh 배경 + border 윤곽 + ink 텍스트 (design §4 login/signup)
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: R.btn, padding: 14, fontSize: 16, backgroundColor: C.surfaceHigh, color: C.ink },
+  btn: { backgroundColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, alignItems: 'center', justifyContent: 'center' },
+  btnText: { color: C.onBrand, fontSize: 16, fontWeight: '600' },
+  error: { color: C.dangerText },
+  link: { textAlign: 'center', color: C.success, marginTop: 8 },
 });
