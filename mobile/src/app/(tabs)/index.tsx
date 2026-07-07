@@ -10,10 +10,11 @@ import {
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
+import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
-import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
-import { cacheCourses, clearHike, startHike } from '@/lib/outbox';
+import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
+import { cacheCourses, clearHike, getCachedCourses, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
   DIFFICULTY_LABEL,
@@ -93,6 +94,47 @@ export default function MapScreen() {
     const m = Math.max(0, Math.floor((nowMs - Date.parse(activeHike.startedAt)) / 60_000));
     return m < 60 ? `${m}분째` : `${Math.floor(m / 60)}시간 ${m % 60}분째`;
   }, [activeHike, nowMs]);
+
+  // 진행 중 등반 코스의 체크포인트(정상) 좌표+반경 — 프리페치 캐시에서(등반 시작 전 openMountain이 캐시함)
+  const activeCheckpoint = useMemo(() => {
+    if (!activeHike) return null;
+    const c = (getCachedCourses(activeHike.mountainId) ?? []).find((x) => x.id === activeHike.courseId);
+    return c
+      ? { lat: c.checkpointPoint.coordinates[1], lng: c.checkpointPoint.coordinates[0], radiusM: c.verifyRadiusM }
+      : null;
+  }, [activeHike]);
+
+  // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
+  // ponytail: 백그라운드 추적 아님 — 앱 백그라운드 시 iOS가 watch를 자동 중단(프라이버시 설계 유지).
+  const [distM, setDistM] = useState<number | null>(null);
+  useEffect(() => {
+    if (!activeHike || !activeCheckpoint) {
+      setDistM(null);
+      return;
+    }
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted' || cancelled) return;
+      sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
+        (loc) => setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng)),
+      );
+    })();
+    return () => {
+      cancelled = true;
+      sub?.remove();
+      setDistM(null);
+    };
+  }, [activeHike, activeCheckpoint]);
+
+  const arrived = distM != null && !!activeCheckpoint && distM <= activeCheckpoint.radiusM;
+  const distLabel = useMemo(() => {
+    if (distM == null || !activeCheckpoint) return null;
+    if (distM <= activeCheckpoint.radiusM) return '정상 도착 ✓';
+    return `정상 ${distM >= 1000 ? (distM / 1000).toFixed(1) + 'km' : Math.round(distM) + 'm'}`;
+  }, [distM, activeCheckpoint]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
   // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.
@@ -201,9 +243,9 @@ export default function MapScreen() {
       ),
     [courses, selectedMountainId, activeHike],
   );
-  // 강조: 진행 중 등반 코스는 항상 selected, 나머지는 dimmed. 등반 없으면 기존 선택 로직.
+  // 강조: 진행 중 등반 코스는 active(네비 경로), 나머지는 dimmed. 등반 없으면 기존 선택 로직.
   const emphasisFor = (c: Course): Emphasis => {
-    if (activeHike?.courseId === c.id) return 'selected';
+    if (activeHike?.courseId === c.id) return 'active';
     if (activeHike) return 'dimmed';
     if (!selectedCourseId) return 'none';
     return c.id === selectedCourseId ? 'selected' : 'dimmed';
@@ -308,10 +350,12 @@ export default function MapScreen() {
           <View style={s.hikeCard}>
             <View style={{ flex: 1 }}>
               <Text style={s.hikeName} numberOfLines={1}>🥾 {activeHike.courseName}</Text>
-              <Text style={s.hikeMeta}>등반 중 · {elapsedLabel}</Text>
+              <Text style={[s.hikeMeta, arrived && s.hikeMetaArrived]} numberOfLines={1}>
+                등반 중 · {elapsedLabel}{distLabel ? ` · ${distLabel}` : ''}
+              </Text>
             </View>
             <TouchableOpacity
-              style={s.hikeCertify}
+              style={[s.hikeCertify, arrived && s.hikeCertifyArrived]}
               activeOpacity={0.85}
               onPress={() =>
                 router.push({
@@ -532,7 +576,10 @@ const s = StyleSheet.create({
   },
   hikeName: { fontSize: 15, fontWeight: '700', color: C.ink },
   hikeMeta: { fontSize: 12, color: C.success, fontWeight: '600', marginTop: 2, fontFamily: MONO },
+  hikeMetaArrived: { fontWeight: '700' },
   hikeCertify: { backgroundColor: C.success, borderRadius: R.btn, paddingHorizontal: SP.md, paddingVertical: SP.sm },
+  // 정상 도착 시 인증 버튼에 밝은 링 — "지금 누르세요" 신호
+  hikeCertifyArrived: { borderWidth: 2, borderColor: C.ink },
   hikeCertifyText: { color: '#0C0E10', fontSize: 14, fontWeight: '700' },
   hikeEnd: { padding: SP.xs },
   hikeEndText: { fontSize: 15, color: C.faint },

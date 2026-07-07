@@ -68,8 +68,8 @@ export function mountainMarkerStyle(conquered: boolean) {
 // 05 §3.1 색약 안전 유지: 상태(미완등/진행중/완등)를 색이 아니라 굵기·패턴·글로우로 인코딩.
 const TRAIL_GREEN = C.success; // #2ECC71 — 등산로 초록
 export type LineState = 'unclimbed' | 'pending' | 'verified';
-// P0-1: 네비식 코스 선택 강조 — selected=선택/dimmed=미선택 페이드
-export type Emphasis = 'none' | 'selected' | 'dimmed';
+// P0-1: 네비식 코스 선택 강조 — selected=선택/dimmed=미선택 페이드/active=진행 중 등반(네비 경로)
+export type Emphasis = 'none' | 'selected' | 'dimmed' | 'active';
 
 // ponytail: 8자리 hex(#RRGGBBAA)는 알파 자리(마지막 2자리)만 '55'로 교체, 6자리는 append.
 // colored.test.js 로 검증 — 경계: '#F8F9FA66' → '#F8F9FA55', '#00C08B' → '#00C08B55'
@@ -99,7 +99,13 @@ export function lineStyle(
     width = 4; // 올라가는 길: 초록 실선, 미완등도 명확히 (완등 w6+글로우보다 약하게)
   }
 
-  if (emphasis === 'selected') {
+  if (emphasis === 'active') {
+    // 진행 중 등반 코스 — 네비 경로처럼 풀 초록 굵은 실선 + 강한 글로우(완등/미완등·점선 무관하게 압도).
+    color = TRAIL_GREEN;
+    width = 8;
+    pattern = undefined;
+    glow = { color: TRAIL_GREEN + '59', width: 18 }; // 35% 글로우
+  } else if (emphasis === 'selected') {
     width += 2; // 선택 코스 굵기 강조
   } else if (emphasis === 'dimmed') {
     color = dimColor(color); // 알파 33% — 타 코스 페이드
