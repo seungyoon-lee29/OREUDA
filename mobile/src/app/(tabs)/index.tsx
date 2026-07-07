@@ -351,6 +351,7 @@ export default function MapScreen() {
             dimmed(비선택/진행 외) 코스는 라벨 숨김. 라인 탭 가로채기 대비 onTap도 selectCourse. */}
         {visibleCourses.map((c) => {
           if (emphasisFor(c) === 'dimmed') return null;
+          if (activeHike?.courseId === c.id) return null; // 등반 중 코스는 정적 소요시간 라벨 숨김 — 배너가 실시간 담당
           const label = durationLabel(c);
           if (!label) return null;
           const mid = c.path.coordinates[Math.floor(c.path.coordinates.length / 2)];
