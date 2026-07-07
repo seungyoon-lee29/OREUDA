@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   NaverMapView,
@@ -125,13 +125,17 @@ export default function MapScreen() {
     (async () => {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted' || cancelled) return;
-      sub = await Location.watchPositionAsync(
+      const s = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
         (loc) => {
           setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? -1 });
           setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
         },
       );
+      // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
+      // resolve 후 재확인해 self-remove — "백그라운드 추적 안 함" 계약 유지.
+      if (cancelled) s.remove();
+      else sub = s;
     })();
     return () => {
       cancelled = true;
@@ -472,6 +476,27 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* 등반 중 '내 위치로' FAB(우하단) — 앱이 추적하는 myPos(=지도의 내비 화살표)로 카메라 리센터.
+          ponytail: 네이티브 isShowLocationButton은 SDK 자체 위치원을 써 목표 myPos와 어긋난다 —
+          이 FAB는 화면의 그 화살표로 정확히 리센터하고 같은 아이콘으로 "이 버튼=저 화살표"를 잇는다. myPos 있을 때만. */}
+      {activeHike && myPos && (
+        <TouchableOpacity
+          style={[s.locFab, { bottom: insets.bottom + TABBAR_CLEARANCE }]}
+          activeOpacity={0.85}
+          hitSlop={8}
+          onPress={() =>
+            // 줌인만(≥14) — 더 당겨봤으면 그 줌 유지, 멀리 봤으면 14로. 줌아웃으로 홱 당기지 않음(사용자 조작 존중).
+            mapRef.current?.animateCameraTo({
+              latitude: myPos.lat,
+              longitude: myPos.lng,
+              zoom: Math.max(lastCam.current.zoom, 14),
+            })
+          }
+        >
+          <Image source={require('../../../assets/images/nav-arrow.png')} style={s.locFabIcon} />
+        </TouchableOpacity>
+      )}
+
       <BottomSheet
         ref={sheetRef}
         index={-1}
@@ -691,4 +716,18 @@ const s = StyleSheet.create({
   recCta: { fontSize: 14, color: C.success, fontWeight: '600', marginTop: SP.xs },
   recClose: { padding: SP.xs },
   recCloseText: { fontSize: 16, color: C.faint },
+  // '내 위치로' FAB — glass 원형, 지도 내비 화살표와 동일 아이콘. 탭바 clearance 위 우하단(추천 카드와 배타: showRec는 !activeHike).
+  locFab: {
+    position: 'absolute',
+    right: SP.lg,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.glass,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locFabIcon: { width: 24, height: 24, resizeMode: 'contain' },
 });
