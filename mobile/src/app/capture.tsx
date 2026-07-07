@@ -8,7 +8,7 @@ import * as Crypto from 'expo-crypto';
 import { api } from '@/lib/api';
 import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
-import { attachCourse, cacheCourses, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
+import { attachCourse, cacheCourses, clearHike, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { C, R, SP, CTA_H, MONO } from '@/lib/theme';
@@ -161,6 +161,7 @@ export default function Capture() {
     pendingRef.current = null;
     if (courseId) attachCourse(clientRef, courseId);
     else finalizeCapture(clientRef);
+    clearHike(); // 인증 성공 = 등반 세션 종료 (지도 배너 사라짐)
     setState({ key: 'captured', clientRef, courseName });
     flush(); // 온라인이면 즉시 제출 시도
   };

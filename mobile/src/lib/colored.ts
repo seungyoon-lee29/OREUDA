@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import { MeClimbsSchema } from './schemas';
-import { pendingCourseIds, subscribeOutbox } from './outbox';
+import { getActiveHike, pendingCourseIds, subscribeHike, subscribeOutbox, type ActiveHike } from './outbox';
 import { useSession } from './stores';
 import { C } from './theme';
 
@@ -11,6 +11,13 @@ export function usePendingSet(): Set<string> {
   const [set, setSet] = useState<Set<string>>(() => pendingCourseIds());
   useEffect(() => subscribeOutbox(() => setSet(pendingCourseIds())), []);
   return set;
+}
+
+// 진행 중 등반 세션 구독 — 지도 상단 배너의 SSOT
+export function useActiveHike(): ActiveHike | null {
+  const [hike, setHike] = useState<ActiveHike | null>(() => getActiveHike());
+  useEffect(() => subscribeHike(() => setHike(getActiveHike())), []);
+  return hike;
 }
 
 export function useMeClimbs() {

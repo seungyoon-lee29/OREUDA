@@ -23,6 +23,13 @@ db.execSync(`
     payload_json TEXT NOT NULL,
     cached_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS active_hike (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    course_id TEXT NOT NULL,
+    mountain_id TEXT NOT NULL,
+    course_name TEXT NOT NULL,
+    started_at TEXT NOT NULL
+  );
 `);
 
 // ---- 프리페치 캐시 (04 §5 프리페치 계약) ----
@@ -39,6 +46,42 @@ export function getCachedCourses(mountainId: string): Course[] | null {
     [mountainId],
   );
   return row ? JSON.parse(row.payload_json) : null;
+}
+
+// ---- 활성 등반 세션 (등반 시작 → 진행 중 → 완등 인증 사이 상태) ----
+// 등반은 몇 시간이라 앱 재시작을 넘겨 지속해야 함 → SQLite 단일 행(id=1). 완등 인증 성공 시 clear.
+// ponytail: 백그라운드 추적 없음 — 이건 "시작했다"는 세션 플래그일 뿐, 위치는 인증 순간에만 1점 사용(설계 유지).
+export type ActiveHike = { courseId: string; mountainId: string; courseName: string; startedAt: string };
+
+const hikeListeners = new Set<() => void>();
+function emitHike() {
+  hikeListeners.forEach((fn) => fn());
+}
+export function subscribeHike(fn: () => void): () => void {
+  hikeListeners.add(fn);
+  return () => hikeListeners.delete(fn);
+}
+
+export function startHike(h: { courseId: string; mountainId: string; courseName: string }) {
+  db.runSync(
+    'INSERT OR REPLACE INTO active_hike (id, course_id, mountain_id, course_name, started_at) VALUES (1, ?, ?, ?, ?)',
+    [h.courseId, h.mountainId, h.courseName, new Date().toISOString()],
+  );
+  emitHike();
+}
+
+export function getActiveHike(): ActiveHike | null {
+  const row = db.getFirstSync<{ course_id: string; mountain_id: string; course_name: string; started_at: string }>(
+    'SELECT course_id, mountain_id, course_name, started_at FROM active_hike WHERE id = 1',
+  );
+  return row
+    ? { courseId: row.course_id, mountainId: row.mountain_id, courseName: row.course_name, startedAt: row.started_at }
+    : null;
+}
+
+export function clearHike() {
+  db.runSync('DELETE FROM active_hike WHERE id = 1');
+  emitHike();
 }
 
 // ---- outbox ----
