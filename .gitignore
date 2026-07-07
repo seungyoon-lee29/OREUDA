@@ -16,3 +16,6 @@ CLAUDE.local.md
 
 # 의존성 / 빌드 산출물 (패키지별 .gitignore 보완)
 **/node_modules/
+
+# 세션 임시물(스크린샷·일회성 스크립트)
+scratchpad/

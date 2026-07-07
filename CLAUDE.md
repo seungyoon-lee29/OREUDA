@@ -16,7 +16,7 @@
 ```bash
 # 백엔드 (api/.env 필요 — DATABASE_URL, JWT_SECRET)
 cd api && npm run start:dev        # 로컬 :3000
-node ../scratchpad/smoke.mjs       # E2E 스모크 (또는 /smoke-test 스킬)
+node scripts/smoke.mjs             # E2E 스모크 (또는 /smoke-test 스킬)
 
 # 앱 (dev client 빌드가 폰/시뮬레이터에 설치돼 있어야 함)
 cd mobile && npx expo start        # 폰과 같은 Wi-Fi

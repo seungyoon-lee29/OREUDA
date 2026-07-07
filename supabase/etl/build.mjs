@@ -6,7 +6,7 @@ import { MOUNTAINS } from './config.mjs';
 
 const R = 6371000;
 const rad = (d) => (d * Math.PI) / 180;
-export function haversine([lng1, lat1], [lng2, lat2]) {
+function haversine([lng1, lat1], [lng2, lat2]) {
   const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
@@ -18,7 +18,7 @@ const DIR = ['북', '북동', '동', '남동', '남', '남서', '서', '북서']
 const dirName = (deg) => DIR[Math.round(deg / 45) % 8];
 
 // Douglas-Peucker (도 단위 수직거리 근사 — 서울 위도에서 0.0001° ≈ 9~11m)
-export function simplify(pts, eps) {
+function simplify(pts, eps) {
   if (pts.length <= 2) return pts;
   const [a, b] = [pts[0], pts[pts.length - 1]];
   let maxD = -1, idx = 0;

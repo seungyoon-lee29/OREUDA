@@ -35,7 +35,6 @@ export const MountainSchema = z.object({
   verifyRadiusM: z.number(),
   courses: CoursesSchema,
 });
-export type Mountain = z.infer<typeof MountainSchema>;
 
 // 03 §6 검증 입력 (outbox payload_json)
 export const ClimbPayloadSchema = z.object({
@@ -62,7 +61,6 @@ export const ClimbResponseSchema = z.object({
   reason: z.string().optional(),
   existingClimbId: z.string().optional(),
 });
-export type ClimbResponse = z.infer<typeof ClimbResponseSchema>;
 
 // 탐색 목록 — GET /mountains 응답 (P0-2, 풀스택 계약)
 export const MountainsListSchema = z.array(
@@ -92,4 +90,3 @@ export const MeClimbsSchema = z.object({
     }),
   ),
 });
-export type MeClimbs = z.infer<typeof MeClimbsSchema>;
