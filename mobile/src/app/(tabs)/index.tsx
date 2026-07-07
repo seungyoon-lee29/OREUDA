@@ -32,6 +32,13 @@ const LINE_ZOOM_OUT = 10.5;
 // 얇은 코스선(w3~6)은 손가락으로 맞히기 어렵다. 투명 넓은 폴리라인을 위에 겹쳐 탭 타겟만 넓힌다.
 const HIT_WIDTH = 44; // 44dp = iOS 최소 터치 타겟
 const HIT_COLOR = '#00000001'; // 사실상 투명(alpha 0은 렌더 스킵될 수 있어 1/255)
+
+// 코스 예상 소요시간·거리 라벨 (네비처럼 지도에 표기). 데이터 없으면 null → 라벨 스킵.
+const durationLabel = (c: Course): string | null => {
+  const t = c.durationMin ? `⏱ ${c.durationMin}분` : '';
+  const d = c.distanceM ? `${(c.distanceM / 1000).toFixed(1)}km` : '';
+  return [t, d].filter(Boolean).join(' · ') || null;
+};
 // NativeTabs(플로팅)는 높이 훅이 없어 상수로 클리어 — safe-area 인셋 위로 이만큼 띄운다(추천 카드 겹침 방지)
 const TABBAR_CLEARANCE = 88;
 
@@ -239,6 +246,28 @@ export default function MapScreen() {
           })}
         {/* 고줌 checkpoint 마커는 제거 — 여러 코스가 정상점을 공유해 핀이 겹치고, 마커가 코스선 끝을
             덮어 라인 탭(selectCourse=미리보기)을 가로챘다. 이제 코스 선택은 라인 탭이 유일 경로. */}
+        {/* 코스별 예상 소요시간·거리 라벨 — 코스선 중앙에. 겹치면 자동 숨김(isHideCollidedCaptions).
+            선택 모드에선 선택 코스 라벨만. 라인 탭 가로채기 대비 onTap도 selectCourse. */}
+        {showLines &&
+          courses?.map((c) => {
+            if (selectedCourseId && c.id !== selectedCourseId) return null;
+            const label = durationLabel(c);
+            if (!label) return null;
+            const mid = c.path.coordinates[Math.floor(c.path.coordinates.length / 2)];
+            if (!mid) return null;
+            return (
+              <NaverMapMarkerOverlay
+                key={`dur-${c.id}`}
+                latitude={mid[1]}
+                longitude={mid[0]}
+                width={1}
+                height={1}
+                isHideCollidedCaptions
+                caption={{ text: label, color: C.success, haloColor: '#0C0E10', textSize: 12 }}
+                onTap={() => selectCourse(c)}
+              />
+            );
+          })}
         {/* rank10: 저줌=산 단위 집약 마커(정복=green+✓ / 미정복=gray, 색+아이콘+텍스트 이중 인코딩) */}
         {!showLines &&
           mountainMarkers.map((m) => {

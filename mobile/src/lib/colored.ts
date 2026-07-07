@@ -46,8 +46,8 @@ export const DIFFICULTY_LABEL: Record<string, string> = {
   hard: '어려움',
 };
 
-// 도화지: 다크 지도 위 Cloud White 40% — 레퍼런스 "pending=흰 점선"의 톤을 미완등 캔버스로 차용
-export const UNCLIMBED_COLOR = '#F8F9FA66';
+// 올라가는 길(미완등)도 초록으로 명확히 — 완등(풀 초록+글로우)보다 차분한 85% 톤
+export const UNCLIMBED_COLOR = '#2ECC71D9';
 
 // 05 §9 저줌 산 마커 SSOT: 색(symbol green/gray)+아이콘(✓)+텍스트 삼중 인코딩(색약 안전, 색 단독 금지).
 // 다크 지도 전환: haloColor 흰색→다크 granite #0C0E10 (다크 basemap 위에서 흰 halo는 들뜸)
@@ -57,7 +57,9 @@ export function mountainMarkerStyle(conquered: boolean) {
     : { symbol: 'gray' as const, caption: { text: '미완등', color: C.body, haloColor: '#0C0E10', textSize: 13 } };
 }
 
-// 04 §7 / 05 §3.1: 코스 선 3상태를 색 단독이 아니라 색+굵기+패턴으로 이중 인코딩(색약 안전).
+// 코스선은 "올라가는 길"을 초록으로 통일(사용자 결정). 난이도 색 구분은 시트 뱃지가 담당.
+// 05 §3.1 색약 안전 유지: 상태(미완등/진행중/완등)를 색이 아니라 굵기·패턴·글로우로 인코딩.
+const TRAIL_GREEN = C.success; // #2ECC71 — 등산로 초록
 export type LineState = 'unclimbed' | 'pending' | 'verified';
 // P0-1: 네비식 코스 선택 강조 — selected=선택/dimmed=미선택 페이드
 export type Emphasis = 'none' | 'selected' | 'dimmed';
@@ -69,26 +71,25 @@ const dimColor = (c: string): string =>
 
 export function lineStyle(
   state: LineState,
-  difficulty: string | null | undefined,
+  _difficulty: string | null | undefined, // 지도선은 초록 통일 — 난이도는 시트 뱃지가 담당(미사용)
   emphasis: Emphasis = 'none',
 ): { color: string; width: number; pattern?: number[]; glow?: { color: string; width: number } } {
-  const baseColor = DIFFICULTY_COLOR[difficulty ?? 'moderate'];
   let color: string;
   let width: number;
   let pattern: number[] | undefined;
   let glow: { color: string; width: number } | undefined;
 
   if (state === 'verified') {
-    color = baseColor;
+    color = TRAIL_GREEN;
     width = 6;
-    glow = { color: baseColor + '4D', width: 14 }; // 30% 알파 글로 언더레이 (§2)
+    glow = { color: TRAIL_GREEN + '4D', width: 14 }; // 완등: 30% 글로 언더레이로 빛남 (§2)
   } else if (state === 'pending') {
-    color = baseColor;
+    color = TRAIL_GREEN;
     width = 4;
     pattern = [12, 8]; // 점선 = 제출 대기
   } else {
     color = UNCLIMBED_COLOR;
-    width = 3; // 흰 40% = 미완등 도화지
+    width = 4; // 올라가는 길: 초록 실선, 미완등도 명확히 (완등 w6+글로우보다 약하게)
   }
 
   if (emphasis === 'selected') {
