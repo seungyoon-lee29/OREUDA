@@ -13,22 +13,21 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
-import { cacheCourses } from '@/lib/outbox';
+import { cacheCourses, clearHike, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
   DIFFICULTY_LABEL,
   type Emphasis,
   lineStyle,
   mountainMarkerStyle,
+  useActiveHike,
   useMeClimbs,
   usePendingSet,
   useVerifiedSet,
 } from '@/lib/colored';
-import { C, R, SP } from '@/lib/theme';
+import { C, MONO, R, SP } from '@/lib/theme';
 
-// 줌 히스테리시스: 진입 z≥11.5 / 이탈 z<10.5 (04 §7)
-const LINE_ZOOM_IN = 11.5;
-const LINE_ZOOM_OUT = 10.5;
+// 산 마커는 항상 표시(줌 무관). 코스선은 "산을 탭해야" 그 산 것만 보인다 — 저줌/고줌 어디서든 선택 가능.
 // 얇은 코스선(w3~6)은 손가락으로 맞히기 어렵다. 투명 넓은 폴리라인을 위에 겹쳐 탭 타겟만 넓힌다.
 const HIT_WIDTH = 44; // 44dp = iOS 최소 터치 타겟
 const HIT_COLOR = '#00000001'; // 사실상 투명(alpha 0은 렌더 스킵될 수 있어 1/255)
@@ -46,7 +45,6 @@ export default function MapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [tile, setTile] = useState(() => lngLatToTile(FETCH_TILE_Z, 126.98, 37.55));
-  const [showLines, setShowLines] = useState(true);
   const [selectedMountainId, setSelectedMountainId] = useState<string | null>(null);
   // P0-1: 코스 선택 상태
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
@@ -81,6 +79,20 @@ export default function MapScreen() {
 
   const pending = usePendingSet();
   const verified = useVerifiedSet();
+  const activeHike = useActiveHike();
+
+  // 등반 중이면 30s마다 경과시간 갱신 (상단 배너 표시용)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!activeHike) return;
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [activeHike]);
+  const elapsedLabel = useMemo(() => {
+    if (!activeHike) return '';
+    const m = Math.max(0, Math.floor((nowMs - Date.parse(activeHike.startedAt)) / 60_000));
+    return m < 60 ? `${m}분째` : `${Math.floor(m / 60)}시간 ${m % 60}분째`;
+  }, [activeHike, nowMs]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
   // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.
@@ -91,15 +103,14 @@ export default function MapScreen() {
     [courses],
   );
   // P0-1: 코스 선택 시 추천 카드 숨김
-  const showRec = !!me && me.totalClimbs === 0 && !selectedMountainId && !selectedCourseId && !recDismissed && !!recommended;
+  const showRec = !!me && me.totalClimbs === 0 && !selectedMountainId && !selectedCourseId && !activeHike && !recDismissed && !!recommended;
 
   // onCameraIdle에서만 + 200ms 디바운스 (04 §7 — onCameraChanged fetch 금지)
   const onCameraIdle = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      const { lng, lat, zoom } = lastCam.current;
+      const { lng, lat } = lastCam.current;
       setTile(lngLatToTile(FETCH_TILE_Z, lng, lat));
-      setShowLines((prev) => (zoom >= LINE_ZOOM_IN ? true : zoom < LINE_ZOOM_OUT ? false : prev));
     }, 200);
   }, []);
 
@@ -171,11 +182,6 @@ export default function MapScreen() {
     pendingCourseRef.current = null; // 미발견 포함 항상 클리어
   }, [mountain, selectCourse]);
 
-  // 줌아웃으로 lines 숨김 전환 시 코스 선택 해제 (P0-1 §엣지)
-  useEffect(() => {
-    if (!showLines) setSelectedCourseId(null);
-  }, [showLines]);
-
   // 타일 이탈로 선택 코스가 courses에서 사라지면 선택 해제
   useEffect(() => {
     if (selectedCourseId && courses && !courses.some((c) => c.id === selectedCourseId)) {
@@ -185,6 +191,23 @@ export default function MapScreen() {
 
   // 현재 시트에 열려 있는 산의 선택된 코스 — CTA 라벨 계산용
   const selectedCourse = mountain?.courses.find((c) => c.id === selectedCourseId) ?? null;
+  const selectedIsActive = !!selectedCourse && activeHike?.courseId === selectedCourse.id;
+
+  // 코스선 노출 집합: 선택된 산의 코스 + 진행 중 등반 코스(다른 산이라도 유지) — "산을 탭해야 코스가 보인다"
+  const visibleCourses = useMemo(
+    () =>
+      (courses ?? []).filter(
+        (c) => c.mountainId === selectedMountainId || c.id === activeHike?.courseId,
+      ),
+    [courses, selectedMountainId, activeHike],
+  );
+  // 강조: 진행 중 등반 코스는 항상 selected, 나머지는 dimmed. 등반 없으면 기존 선택 로직.
+  const emphasisFor = (c: Course): Emphasis => {
+    if (activeHike?.courseId === c.id) return 'selected';
+    if (activeHike) return 'dimmed';
+    if (!selectedCourseId) return 'none';
+    return c.id === selectedCourseId ? 'selected' : 'dimmed';
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -204,73 +227,63 @@ export default function MapScreen() {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
         onCameraIdle={onCameraIdle}
-        // P0-1: 빈 지도 탭 → 코스 선택 해제 + 시트 닫기
+        // 빈 지도 탭 → 1탭: 코스 선택만 해제 / 코스 없으면 시트 닫기(=산 선택 해제)
         onTapMap={() => {
-          setSelectedCourseId(null);
-          sheetRef.current?.close();
+          if (selectedCourseId) setSelectedCourseId(null);
+          else sheetRef.current?.close();
         }}
       >
-        {showLines &&
-          courses?.map((c) => {
-            // P0-1: 선택된 코스 없으면 none, 선택 코스는 selected, 나머지는 dimmed
-            const emphasis: Emphasis = !selectedCourseId
-              ? 'none'
-              : c.id === selectedCourseId
-              ? 'selected'
-              : 'dimmed';
-            const st = lineStyle(lineState(c), c.difficulty, emphasis);
-            const coords = c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-            return (
-              <Fragment key={c.id}>
-                {/* verified glow 언더레이 — §2: zIndex 본선(1)보다 낮게(0) */}
-                {st.glow && (
-                  <NaverMapPolylineOverlay coords={coords} width={st.glow.width} color={st.glow.color} zIndex={0} />
-                )}
-                <NaverMapPolylineOverlay
-                  coords={coords}
-                  width={st.width}
-                  color={st.color}
-                  pattern={st.pattern}
-                  zIndex={1}
-                />
-                {/* 투명 넓은 탭 히트영역 — 본선 위(zIndex 2)라 탭을 먼저 잡는다. selectCourse=미리보기 */}
-                <NaverMapPolylineOverlay
-                  coords={coords}
-                  width={HIT_WIDTH}
-                  color={HIT_COLOR}
-                  zIndex={2}
-                  onTap={() => selectCourse(c)}
-                />
-              </Fragment>
-            );
-          })}
-        {/* 고줌 checkpoint 마커는 제거 — 여러 코스가 정상점을 공유해 핀이 겹치고, 마커가 코스선 끝을
-            덮어 라인 탭(selectCourse=미리보기)을 가로챘다. 이제 코스 선택은 라인 탭이 유일 경로. */}
-        {/* 코스별 예상 소요시간·거리 라벨 — 코스선 중앙에. 겹치면 자동 숨김(isHideCollidedCaptions).
-            선택 모드에선 선택 코스 라벨만. 라인 탭 가로채기 대비 onTap도 selectCourse. */}
-        {showLines &&
-          courses?.map((c) => {
-            if (selectedCourseId && c.id !== selectedCourseId) return null;
-            const label = durationLabel(c);
-            if (!label) return null;
-            const mid = c.path.coordinates[Math.floor(c.path.coordinates.length / 2)];
-            if (!mid) return null;
-            return (
-              <NaverMapMarkerOverlay
-                key={`dur-${c.id}`}
-                latitude={mid[1]}
-                longitude={mid[0]}
-                width={1}
-                height={1}
-                isHideCollidedCaptions
-                caption={{ text: label, color: C.success, haloColor: '#0C0E10', textSize: 12 }}
+        {visibleCourses.map((c) => {
+          const st = lineStyle(lineState(c), c.difficulty, emphasisFor(c));
+          const coords = c.path.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+          return (
+            <Fragment key={c.id}>
+              {/* verified glow 언더레이 — §2: zIndex 본선(1)보다 낮게(0) */}
+              {st.glow && (
+                <NaverMapPolylineOverlay coords={coords} width={st.glow.width} color={st.glow.color} zIndex={0} />
+              )}
+              <NaverMapPolylineOverlay
+                coords={coords}
+                width={st.width}
+                color={st.color}
+                pattern={st.pattern}
+                zIndex={1}
+              />
+              {/* 투명 넓은 탭 히트영역 — 본선 위(zIndex 2)라 탭을 먼저 잡는다. selectCourse=미리보기 */}
+              <NaverMapPolylineOverlay
+                coords={coords}
+                width={HIT_WIDTH}
+                color={HIT_COLOR}
+                zIndex={2}
                 onTap={() => selectCourse(c)}
               />
-            );
-          })}
-        {/* rank10: 저줌=산 단위 집약 마커(정복=green+✓ / 미정복=gray, 색+아이콘+텍스트 이중 인코딩) */}
-        {!showLines &&
-          mountainMarkers.map((m) => {
+            </Fragment>
+          );
+        })}
+        {/* 코스별 예상 소요시간·거리 라벨 — 코스선 중앙에. 겹치면 자동 숨김(isHideCollidedCaptions).
+            dimmed(비선택/진행 외) 코스는 라벨 숨김. 라인 탭 가로채기 대비 onTap도 selectCourse. */}
+        {visibleCourses.map((c) => {
+          if (emphasisFor(c) === 'dimmed') return null;
+          const label = durationLabel(c);
+          if (!label) return null;
+          const mid = c.path.coordinates[Math.floor(c.path.coordinates.length / 2)];
+          if (!mid) return null;
+          return (
+            <NaverMapMarkerOverlay
+              key={`dur-${c.id}`}
+              latitude={mid[1]}
+              longitude={mid[0]}
+              width={1}
+              height={1}
+              isHideCollidedCaptions
+              caption={{ text: label, color: C.success, haloColor: '#0C0E10', textSize: 12 }}
+              onTap={() => selectCourse(c)}
+            />
+          );
+        })}
+        {/* 산 단위 집약 마커 — 항상 표시(줌 무관). 정복=green+✓ / 미정복=gray(색+아이콘+텍스트 이중 인코딩).
+            탭하면 그 산의 시트가 열리고 코스선이 나타난다. */}
+        {mountainMarkers.map((m) => {
             const mk = mountainMarkerStyle(m.conquered);
             return (
               <NaverMapMarkerOverlay
@@ -289,17 +302,43 @@ export default function MapScreen() {
           })}
       </NaverMapView>
 
-      {/* P0-2 연결: 상단 플로팅 검색 pill — 탭 시 /search(FE-B 생성 예정) */}
-      <View style={[s.searchPillWrap, { top: insets.top + SP.sm }]} pointerEvents="box-none">
-        <TouchableOpacity
-          style={s.searchPill}
-          activeOpacity={0.85}
-          // ponytail: /search는 FE-B 생성 예정 — typedRoutes 미등록이라 as any
-          onPress={() => router.push('/search' as any)}
-        >
-          <Text style={s.searchPillText}>산 이름 검색</Text>
-        </TouchableOpacity>
-      </View>
+      {/* 등반 중이면 상단을 등반 배너가 차지(진행 중 세션) — 아니면 검색 pill */}
+      {activeHike ? (
+        <View style={[s.hikeBarWrap, { top: insets.top + SP.sm }]} pointerEvents="box-none">
+          <View style={s.hikeCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.hikeName} numberOfLines={1}>🥾 {activeHike.courseName}</Text>
+              <Text style={s.hikeMeta}>등반 중 · {elapsedLabel}</Text>
+            </View>
+            <TouchableOpacity
+              style={s.hikeCertify}
+              activeOpacity={0.85}
+              onPress={() =>
+                router.push({
+                  pathname: '/capture',
+                  params: { mountainId: activeHike.mountainId, courseId: activeHike.courseId },
+                })
+              }
+            >
+              <Text style={s.hikeCertifyText}>완등 인증</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.hikeEnd} onPress={() => clearHike()} hitSlop={10}>
+              <Text style={s.hikeEndText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={[s.searchPillWrap, { top: insets.top + SP.sm }]} pointerEvents="box-none">
+          <TouchableOpacity
+            style={s.searchPill}
+            activeOpacity={0.85}
+            // ponytail: /search는 FE-B 생성 예정 — typedRoutes 미등록이라 as any
+            onPress={() => router.push('/search' as any)}
+          >
+            <Text style={s.searchPillText}>산 이름 검색</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {showRec && recommended && (
         <View style={[s.recWrap, { bottom: insets.bottom + TABBAR_CLEARANCE }]} pointerEvents="box-none">
@@ -327,8 +366,12 @@ export default function MapScreen() {
         enablePanDownToClose
         backgroundStyle={{ backgroundColor: C.surface }}
         handleIndicatorStyle={{ backgroundColor: C.border }}
-        // P0-1: 시트 pan-down close 시 코스 선택만 해제 (selectedMountainId는 유지 — 재오픈 캐시 보존)
-        onClose={() => setSelectedCourseId(null)}
+        // 시트 닫힘 = 산 선택 해제 → 코스선도 숨김("산을 탭해야 코스가 보인다"). 캐시는 react-query가 보존.
+        // 진행 중 등반 코스선은 activeHike 파생이라 여기서 안 사라짐.
+        onClose={() => {
+          setSelectedCourseId(null);
+          setSelectedMountainId(null);
+        }}
       >
         <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + TABBAR_CLEARANCE }]}>
           {mountain ? (
@@ -379,21 +422,33 @@ export default function MapScreen() {
                   </TouchableOpacity>
                 );
               })}
-              {/* P0-1: 코스 선택 시 CTA 라벨 변경 + courseId 전달 */}
+              {/* 코스를 골라 '등반 시작' → 상단 배너로 진행. 이미 진행 중인 코스면 '완등 인증'으로 전환. */}
               <TouchableOpacity
-                style={s.captureBtn}
-                onPress={() =>
-                  router.push({
-                    pathname: '/capture',
-                    params: {
+                style={[s.captureBtn, !selectedCourse && s.captureBtnDisabled]}
+                disabled={!selectedCourse}
+                onPress={() => {
+                  if (!selectedCourse) return;
+                  if (selectedIsActive) {
+                    router.push({
+                      pathname: '/capture',
+                      params: { mountainId: mountain.id, courseId: selectedCourse.id },
+                    });
+                  } else {
+                    startHike({
+                      courseId: selectedCourse.id,
                       mountainId: mountain.id,
-                      ...(selectedCourseId ? { courseId: selectedCourseId } : {}),
-                    },
-                  })
-                }
+                      courseName: selectedCourse.name,
+                    });
+                    sheetRef.current?.close();
+                  }
+                }}
               >
                 <Text style={s.captureBtnText}>
-                  {selectedCourse ? `${selectedCourse.name}에서 인증하기` : '정상에서 인증하기'}
+                  {!selectedCourse
+                    ? '코스를 선택하세요'
+                    : selectedIsActive
+                    ? `${selectedCourse.name} 완등 인증하기`
+                    : `${selectedCourse.name} 등반 시작`}
                 </Text>
               </TouchableOpacity>
             </>
@@ -459,6 +514,28 @@ const s = StyleSheet.create({
     marginTop: SP.lg,
   },
   captureBtnText: { color: C.onBrand, fontSize: 17, fontWeight: '700' },
+  captureBtnDisabled: { opacity: 0.4 },
+  // 등반 중 상단 배너 — success 좌보더 강조 + granite glass. 검색 pill 자리를 대체.
+  hikeBarWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
+  hikeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SP.sm,
+    backgroundColor: C.glass,
+    borderRadius: R.card,
+    paddingVertical: SP.sm,
+    paddingHorizontal: SP.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderLeftWidth: 3,
+    borderLeftColor: C.success,
+  },
+  hikeName: { fontSize: 15, fontWeight: '700', color: C.ink },
+  hikeMeta: { fontSize: 12, color: C.success, fontWeight: '600', marginTop: 2, fontFamily: MONO },
+  hikeCertify: { backgroundColor: C.success, borderRadius: R.btn, paddingHorizontal: SP.md, paddingVertical: SP.sm },
+  hikeCertifyText: { color: '#0C0E10', fontSize: 14, fontWeight: '700' },
+  hikeEnd: { padding: SP.xs },
+  hikeEndText: { fontSize: 15, color: C.faint },
   // P0-2: 상단 플로팅 검색 pill (safe-area top 기준)
   searchPillWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   searchPill: {
