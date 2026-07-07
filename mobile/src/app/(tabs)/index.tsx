@@ -112,9 +112,12 @@ export default function MapScreen() {
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
   // ponytail: 백그라운드 추적 아님 — 앱 백그라운드 시 iOS가 watch를 자동 중단(프라이버시 설계 유지).
   const [distM, setDistM] = useState<number | null>(null);
+  const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
   useEffect(() => {
     if (!activeHike || !activeCheckpoint) {
       setDistM(null);
+      setMyPos(null);
       return;
     }
     let sub: Location.LocationSubscription | null = null;
@@ -124,27 +127,53 @@ export default function MapScreen() {
       if (status !== 'granted' || cancelled) return;
       sub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
-        (loc) => setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng)),
+        (loc) => {
+          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
+        },
       );
     })();
     return () => {
       cancelled = true;
       sub?.remove();
       setDistM(null);
+      setMyPos(null);
     };
-  }, [activeHike, activeCheckpoint]);
+  }, [activeHike, activeCheckpoint, locGranted]);
+
+  // 등반 시작 시 내 위치 ↔ 정상이 한눈에 들어오게 카메라 1회 맞춤(등반당 1회, 이후 사용자 조작 존중).
+  const fittedHikeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeHike) {
+      fittedHikeRef.current = null;
+      return;
+    }
+    if (!myPos || !activeCheckpoint || fittedHikeRef.current === activeHike.courseId || !mapRef.current) return;
+    fittedHikeRef.current = activeHike.courseId;
+    const pad = 0.002; // ~200m 여유 — 두 점이 붙어 있어도 과도 줌 방지
+    mapRef.current.animateCameraWithTwoCoords({
+      coord1: { latitude: Math.min(myPos.lat, activeCheckpoint.lat) - pad, longitude: Math.min(myPos.lng, activeCheckpoint.lng) - pad },
+      coord2: { latitude: Math.max(myPos.lat, activeCheckpoint.lat) + pad, longitude: Math.max(myPos.lng, activeCheckpoint.lng) + pad },
+    });
+  }, [activeHike, myPos, activeCheckpoint]);
 
   const arrived = distM != null && !!activeCheckpoint && distM <= activeCheckpoint.radiusM;
-  // 정상까지 남은 거리 + 예상 소요시간(페이스 있을 때만). 반경 안이면 도착.
-  const progressLabel = useMemo(() => {
+  // 정상까지 남은 거리(지도 정상 마커·배너 공용). 반경 안이면 '도착'.
+  const remainLabel = useMemo(() => {
     if (distM == null || !activeCheckpoint) return null;
-    if (distM <= activeCheckpoint.radiusM) return '정상 도착 ✓';
-    const dist = distM >= 1000 ? (distM / 1000).toFixed(1) + 'km' : Math.round(distM) + 'm';
-    const eta = activeCheckpoint.paceMinPerM
-      ? ` · 약 ${Math.max(1, Math.round(distM * activeCheckpoint.paceMinPerM))}분`
-      : '';
-    return `정상 ${dist}${eta}`;
+    if (distM <= activeCheckpoint.radiusM) return '도착';
+    return distM >= 1000 ? (distM / 1000).toFixed(1) + 'km' : Math.round(distM) + 'm';
   }, [distM, activeCheckpoint]);
+  // 배너용: 남은 거리 + 예상 소요시간(페이스 있을 때만).
+  const progressLabel = useMemo(() => {
+    if (remainLabel == null) return null;
+    if (remainLabel === '도착') return '정상 도착 ✓';
+    const eta =
+      activeCheckpoint?.paceMinPerM && distM != null
+        ? ` · 약 ${Math.max(1, Math.round(distM * activeCheckpoint.paceMinPerM))}분`
+        : '';
+    return `정상 ${remainLabel}${eta}`;
+  }, [remainLabel, activeCheckpoint, distM]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
   // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.
@@ -275,6 +304,12 @@ export default function MapScreen() {
         lightness={-0.1}
         layerGroups={{ BUILDING: true, TRAFFIC: false, TRANSIT: false, BICYCLE: false, MOUNTAIN: false, CADASTRAL: false }}
         isShowLocationButton
+        // 등반 중 내 위치 점(네이티브 오버레이) — watch 위치를 먹인다. 등반 아니면 숨김.
+        locationOverlay={
+          activeHike && myPos
+            ? { isVisible: true, position: { latitude: myPos.lat, longitude: myPos.lng } }
+            : { isVisible: false }
+        }
         onCameraChanged={({ latitude, longitude, zoom }) => {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
@@ -333,9 +368,26 @@ export default function MapScreen() {
             />
           );
         })}
+        {/* 등반 중 정상(목표) 마커 — 남은 거리를 목표 지점에 표기(캡션만, 핀 없이). GPS 전엔 '🚩 정상'만. */}
+        {activeHike && activeCheckpoint && (
+          <NaverMapMarkerOverlay
+            latitude={activeCheckpoint.lat}
+            longitude={activeCheckpoint.lng}
+            width={1}
+            height={1}
+            isHideCollidedCaptions
+            caption={{
+              text: `🚩 정상${remainLabel ? ` ${remainLabel}` : ''}`,
+              color: C.ink,
+              haloColor: '#0C0E10',
+              textSize: 13,
+            }}
+          />
+        )}
         {/* 산 단위 집약 마커 — 항상 표시(줌 무관). 정복=green+✓ / 미정복=gray(색+아이콘+텍스트 이중 인코딩).
             탭하면 그 산의 시트가 열리고 코스선이 나타난다. */}
         {mountainMarkers.map((m) => {
+            if (activeHike?.mountainId === m.mountainId) return null; // 등반 중인 산은 정상 마커로 대체(캡션 겹침 방지)
             const mk = mountainMarkerStyle(m.conquered);
             return (
               <NaverMapMarkerOverlay
@@ -494,6 +546,10 @@ export default function MapScreen() {
                       courseName: selectedCourse.name,
                     });
                     sheetRef.current?.close();
+                    // 등반 시작 = 명시적 위치 액션 → 이 시점 권한 요청(콜드 아님). 허용되면 watch 재가동.
+                    Location.requestForegroundPermissionsAsync()
+                      .then((p) => setLocGranted(p.granted))
+                      .catch(() => {});
                   }
                 }}
               >
