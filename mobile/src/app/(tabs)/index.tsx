@@ -112,7 +112,7 @@ export default function MapScreen() {
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
   // ponytail: 백그라운드 추적 아님 — 앱 백그라운드 시 iOS가 watch를 자동 중단(프라이버시 설계 유지).
   const [distM, setDistM] = useState<number | null>(null);
-  const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [myPos, setMyPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
   useEffect(() => {
     if (!activeHike || !activeCheckpoint) {
@@ -128,7 +128,7 @@ export default function MapScreen() {
       sub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
         (loc) => {
-          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? -1 });
           setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
         },
       );
@@ -304,12 +304,6 @@ export default function MapScreen() {
         lightness={-0.1}
         layerGroups={{ BUILDING: true, TRAFFIC: false, TRANSIT: false, BICYCLE: false, MOUNTAIN: false, CADASTRAL: false }}
         isShowLocationButton
-        // 등반 중 내 위치 점(네이티브 오버레이) — watch 위치를 먹인다. 등반 아니면 숨김.
-        locationOverlay={
-          activeHike && myPos
-            ? { isVisible: true, position: { latitude: myPos.lat, longitude: myPos.lng } }
-            : { isVisible: false }
-        }
         onCameraChanged={({ latitude, longitude, zoom }) => {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
@@ -383,6 +377,18 @@ export default function MapScreen() {
               haloColor: '#0C0E10',
               textSize: 13,
             }}
+          />
+        )}
+        {/* 등반 중 내 위치 — 큰 내비 화살표(heading 방향 회전, 정적이면 위쪽). 작은 점 대신. */}
+        {activeHike && myPos && (
+          <NaverMapMarkerOverlay
+            latitude={myPos.lat}
+            longitude={myPos.lng}
+            width={40}
+            height={40}
+            anchor={{ x: 0.5, y: 0.5 }}
+            angle={myPos.heading >= 0 ? myPos.heading : 0}
+            image={require('../../../assets/images/nav-arrow.png')}
           />
         )}
         {/* 산 단위 집약 마커 — 항상 표시(줌 무관). 정복=green+✓ / 미정복=gray(색+아이콘+텍스트 이중 인코딩).
