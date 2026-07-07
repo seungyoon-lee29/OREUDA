@@ -99,9 +99,14 @@ export default function MapScreen() {
   const activeCheckpoint = useMemo(() => {
     if (!activeHike) return null;
     const c = (getCachedCourses(activeHike.mountainId) ?? []).find((x) => x.id === activeHike.courseId);
-    return c
-      ? { lat: c.checkpointPoint.coordinates[1], lng: c.checkpointPoint.coordinates[0], radiusM: c.verifyRadiusM }
-      : null;
+    if (!c) return null;
+    return {
+      lat: c.checkpointPoint.coordinates[1],
+      lng: c.checkpointPoint.coordinates[0],
+      radiusM: c.verifyRadiusM,
+      // 코스 페이스(분/m) — 남은 직선거리×페이스로 대략 ETA. ponytail: 직선이라 실거리보다 짧게 잡힘 → '약'.
+      paceMinPerM: c.durationMin && c.distanceM ? c.durationMin / c.distanceM : null,
+    };
   }, [activeHike]);
 
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
@@ -130,10 +135,15 @@ export default function MapScreen() {
   }, [activeHike, activeCheckpoint]);
 
   const arrived = distM != null && !!activeCheckpoint && distM <= activeCheckpoint.radiusM;
-  const distLabel = useMemo(() => {
+  // 정상까지 남은 거리 + 예상 소요시간(페이스 있을 때만). 반경 안이면 도착.
+  const progressLabel = useMemo(() => {
     if (distM == null || !activeCheckpoint) return null;
     if (distM <= activeCheckpoint.radiusM) return '정상 도착 ✓';
-    return `정상 ${distM >= 1000 ? (distM / 1000).toFixed(1) + 'km' : Math.round(distM) + 'm'}`;
+    const dist = distM >= 1000 ? (distM / 1000).toFixed(1) + 'km' : Math.round(distM) + 'm';
+    const eta = activeCheckpoint.paceMinPerM
+      ? ` · 약 ${Math.max(1, Math.round(distM * activeCheckpoint.paceMinPerM))}분`
+      : '';
+    return `정상 ${dist}${eta}`;
   }, [distM, activeCheckpoint]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
@@ -351,7 +361,7 @@ export default function MapScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.hikeName} numberOfLines={1}>🥾 {activeHike.courseName}</Text>
               <Text style={[s.hikeMeta, arrived && s.hikeMetaArrived]} numberOfLines={1}>
-                등반 중 · {elapsedLabel}{distLabel ? ` · ${distLabel}` : ''}
+                {progressLabel ? `${elapsedLabel} · ${progressLabel}` : `등반 중 · ${elapsedLabel}`}
               </Text>
             </View>
             <TouchableOpacity
