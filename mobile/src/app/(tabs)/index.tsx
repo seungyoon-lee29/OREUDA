@@ -26,6 +26,7 @@ import {
   usePendingSet,
   useVerifiedSet,
 } from '@/lib/colored';
+import { hasAllClear, tierFor } from '@/lib/tiers';
 import { C, MONO, R, SP } from '@/lib/theme';
 
 // 산 마커는 항상 표시(줌 무관). 코스선은 "산을 탭해야" 그 산 것만 보인다 — 저줌/고줌 어디서든 선택 가능.
@@ -80,6 +81,8 @@ export default function MapScreen() {
 
   const pending = usePendingSet();
   const verified = useVerifiedSet();
+  // 완등 마커 등급 테마 — 유저 완등수로 등급색/완등왕 골드 (프로필·기록과 톤 통일)
+  const markerTier = { tierColor: tierFor(verified.size).color, max: hasAllClear(verified.size) };
   const activeHike = useActiveHike();
 
   // 등반 중이면 30s마다 경과시간 갱신 (상단 배너 표시용)
@@ -399,7 +402,7 @@ export default function MapScreen() {
             탭하면 그 산의 시트가 열리고 코스선이 나타난다. */}
         {mountainMarkers.map((m) => {
             if (activeHike?.mountainId === m.mountainId) return null; // 등반 중인 산은 정상 마커로 대체(캡션 겹침 방지)
-            const mk = mountainMarkerStyle(m.conquered);
+            const mk = mountainMarkerStyle(m.conquered, markerTier);
             return (
               <NaverMapMarkerOverlay
                 key={`mt-${m.mountainId}`}

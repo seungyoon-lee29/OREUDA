@@ -58,9 +58,10 @@ export const UNCLIMBED_COLOR = '#2ECC71D9';
 
 // 05 §9 저줌 산 마커 SSOT: 색(symbol green/gray)+아이콘(✓)+텍스트 삼중 인코딩(색약 안전, 색 단독 금지).
 // 다크 지도 전환: haloColor 흰색→다크 granite #0C0E10 (다크 basemap 위에서 흰 halo는 들뜸)
-export function mountainMarkerStyle(conquered: boolean) {
+// 등급 테마(opts): 완등 캡션 색 = 유저 등급색, 완등왕(max)이면 핀도 골드(yellow). ✓·텍스트 유지 → 삼중 인코딩 불변.
+export function mountainMarkerStyle(conquered: boolean, opts?: { tierColor?: string; max?: boolean }) {
   return conquered
-    ? { symbol: 'green' as const, caption: { text: '완등 ✓', color: C.success, haloColor: '#0C0E10', textSize: 13 } }
+    ? { symbol: (opts?.max ? 'yellow' : 'green') as 'yellow' | 'green', caption: { text: '완등 ✓', color: opts?.tierColor ?? C.success, haloColor: '#0C0E10', textSize: 13 } }
     : { symbol: 'gray' as const, caption: { text: '미완등', color: C.body, haloColor: '#0C0E10', textSize: 13 } };
 }
 
