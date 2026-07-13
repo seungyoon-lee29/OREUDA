@@ -7,7 +7,7 @@ import { useVerifiedSet } from '@/lib/colored';
 import { isGuest, setGuest } from '@/lib/prefs';
 import { useSession } from '@/lib/stores';
 import {
-  ALL_CLEAR_BADGE, hasAllClear, nextTier, tierFor, TOTAL_COURSES,
+  ALL_CLEAR_BADGE, hasAllClear, nextTier, tierFor, SUMMIT_GOAL,
 } from '@/lib/tiers';
 import { C, MONO, R, SP } from '@/lib/theme';
 
@@ -48,11 +48,11 @@ export default function Profile() {
         <View style={s.card}>
           <View style={s.statRow}>
             <Text style={s.statNum}>{done}</Text>
-            <Text style={s.statTotal}> / {TOTAL_COURSES}</Text>
+            <Text style={s.statTotal}> / {SUMMIT_GOAL}</Text>
           </View>
           <Text style={s.statLabel}>완등한 코스</Text>
           <View style={s.track}>
-            <View style={[s.fill, { width: `${(done / TOTAL_COURSES) * 100}%` }]} />
+            <View style={[s.fill, { width: `${Math.min(100, (done / SUMMIT_GOAL) * 100)}%` }]} />
           </View>
           {/* 다음 등급 */}
           <Text style={s.nextText}>
@@ -88,7 +88,12 @@ export default function Profile() {
         )}
 
         {/* ── 로그아웃 */}
-        <TouchableOpacity style={s.logoutBtn} onPress={signOut}>
+        <TouchableOpacity
+          style={s.logoutBtn}
+          onPress={signOut}
+          accessibilityRole="button"
+          accessibilityLabel="로그아웃"
+        >
           <Text style={s.logoutText}>로그아웃</Text>
         </TouchableOpacity>
       </ScrollView>
