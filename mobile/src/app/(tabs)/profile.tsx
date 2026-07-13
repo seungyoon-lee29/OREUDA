@@ -87,15 +87,17 @@ export default function Profile() {
           </View>
         )}
 
-        {/* ── 로그아웃 */}
-        <TouchableOpacity
-          style={s.logoutBtn}
-          onPress={signOut}
-          accessibilityRole="button"
-          accessibilityLabel="로그아웃"
-        >
-          <Text style={s.logoutText}>로그아웃</Text>
-        </TouchableOpacity>
+        {/* ── 로그아웃 — 게스트는 숨김(랜덤 계정이라 로그아웃 시 재로그인 불가 → 넛지 '계정 만들기'만 노출) */}
+        {!guest && (
+          <TouchableOpacity
+            style={s.logoutBtn}
+            onPress={signOut}
+            accessibilityRole="button"
+            accessibilityLabel="로그아웃"
+          >
+            <Text style={s.logoutText}>로그아웃</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
