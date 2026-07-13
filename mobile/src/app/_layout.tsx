@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { wireOutbox } from '@/lib/outbox';
+import { hasSeenOnboarding } from '@/lib/prefs';
 import { useSession } from '@/lib/stores';
 
 SplashScreen.preventAutoHideAsync();
@@ -31,9 +32,15 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready) return;
     SplashScreen.hideAsync();
+    const onOnboarding = segments[0] === 'onboarding';
     const inAuth = segments[0] === 'login' || segments[0] === 'signup';
-    if (!authed && !inAuth) router.replace('/login');
-    else if (authed && inAuth) router.replace('/');
+    if (!authed) {
+      // 첫 실행이면 로그인 전에 온보딩 1회 노출
+      if (!hasSeenOnboarding() && !onOnboarding && !inAuth) { router.replace('/onboarding'); return; }
+      if (hasSeenOnboarding() && !inAuth && !onOnboarding) { router.replace('/login'); return; }
+    } else if (inAuth || onOnboarding) {
+      router.replace('/');
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authed, segments]);
 
@@ -44,6 +51,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="onboarding" />
           <Stack.Screen name="login" />
           <Stack.Screen name="signup" />
           {/* 캡처 위저드 — 탭 위 풀스크린 모달 (04 §9) */}

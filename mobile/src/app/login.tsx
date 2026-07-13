@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'expo-router';
 import {
-  KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity,
+  KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+import { Logo } from '@/components/Logo';
 import { login } from '@/lib/api';
 import { useSession } from '@/lib/stores';
 import { C, R, CTA_H } from '@/lib/theme';
@@ -30,7 +31,7 @@ export default function Login() {
 
   return (
     <KeyboardAvoidingView style={s.wrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Text style={s.title}>등산 앱</Text>
+      <View style={s.logo}><Logo size={48} /></View>
       <TextInput style={s.input} placeholder="이메일" placeholderTextColor={C.faint} autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
       <TextInput style={s.input} placeholder="비밀번호" placeholderTextColor={C.faint} secureTextEntry value={password} onChangeText={setPassword} />
       {!!error && <Text style={s.error}>{error}</Text>}
@@ -44,7 +45,7 @@ export default function Login() {
 
 const s = StyleSheet.create({
   wrap: { flex: 1, justifyContent: 'center', padding: 24, gap: 12, backgroundColor: C.bg },
-  title: { fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 16, color: C.ink },
+  logo: { alignItems: 'center', marginBottom: 16 },
   // 다크 인풋: surfaceHigh 배경 + border 윤곽 + ink 텍스트 (design §4 login/signup)
   input: { borderWidth: 1, borderColor: C.border, borderRadius: R.btn, padding: 14, fontSize: 16, backgroundColor: C.surfaceHigh, color: C.ink },
   btn: { backgroundColor: C.brand, borderRadius: R.btn, minHeight: CTA_H, alignItems: 'center', justifyContent: 'center' },
