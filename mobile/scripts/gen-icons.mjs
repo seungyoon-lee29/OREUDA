@@ -77,6 +77,39 @@ function render(size, { markFrac = 0.62, opaque = true, mono = false } = {}) {
   return buf;
 }
 
+// ── 프로필 탭 아이콘: 사람 실루엣(머리=원, 어깨=캡슐 아크). 흰 실루엣 on 투명.
+// renderingMode="template"이 tint하므로 색은 흰색 고정, 알파만 실루엣.
+function renderPerson(size) {
+  const buf = Buffer.alloc(size * size * 4);
+  const S = 4, inv = 1 / (S * S); // 슈퍼샘플
+  // 단위(0..1) 기하 → px. 머리 원 + 어깨 캡슐(둥근 사각).
+  const headCx = 0.5, headCy = 0.33, headR = 0.16;
+  const shX0 = 0.20, shX1 = 0.80, shTop = 0.60, shBot = 0.86, shR = 0.30; // 어깨 아크
+  const u = (v) => v * size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let a = 0;
+      for (let sy = 0; sy < S; sy++) for (let sx = 0; sx < S; sx++) {
+        const px = (x + (sx + 0.5) / S) / size, py = (y + (sy + 0.5) / S) / size;
+        const inHead = Math.hypot(px - headCx, py - headCy) <= headR;
+        // 어깨: [shX0,shX1]×[shTop,shBot] 사각을 상단 모서리만 shR로 둥글게(아래로 벌어지는 몸통).
+        let inBody = false;
+        if (px >= shX0 && px <= shX1 && py >= shTop && py <= shBot) {
+          const cornerL = px < shX0 + shR && py < shTop + shR;
+          const cornerR = px > shX1 - shR && py < shTop + shR;
+          if (cornerL) inBody = Math.hypot(px - (shX0 + shR), py - (shTop + shR)) <= shR;
+          else if (cornerR) inBody = Math.hypot(px - (shX1 - shR), py - (shTop + shR)) <= shR;
+          else inBody = true;
+        }
+        if (inHead || inBody) a += 255;
+      }
+      const A = Math.round(a * inv), o = (y * size + x) * 4;
+      buf[o] = 255; buf[o + 1] = 255; buf[o + 2] = 255; buf[o + 3] = A;
+    }
+  }
+  return buf;
+}
+
 // ── 최소 RGBA PNG 인코더
 function crc32(buf) {
   let c = ~0;
@@ -125,4 +158,11 @@ save('android-icon-foreground.png', 1024, { markFrac: 0.44, opaque: false });   
 save('android-icon-background.png', 1024, { markFrac: 0, opaque: true });        // 어댑티브 배경 — 단색 granite
 save('android-icon-monochrome.png', 1024, { markFrac: 0.44, opaque: false, mono: true }); // 테마드 아이콘 실루엣
 save('favicon.png', 48, { markFrac: 0.66, opaque: true });                      // 웹
+
+// ── 프로필 탭 아이콘 24/48/72 (home.png와 동일 사이징). 흰 실루엣 RGBA on 투명.
+const TAB_OUT = join(OUT, 'tabIcons');
+for (const [name, size] of [['profile.png', 24], ['profile@2x.png', 48], ['profile@3x.png', 72]]) {
+  writeFileSync(join(TAB_OUT, name), encodePNG(renderPerson(size), size, true));
+  console.log('  ✓ tabIcons/' + name, `${size}²`, 'RGBA person');
+}
 console.log('완료.');

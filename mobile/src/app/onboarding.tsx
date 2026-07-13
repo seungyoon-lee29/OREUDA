@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '@/components/Logo';
+import { PeakMark } from '@/components/PeakMark';
 import { markOnboardingSeen } from '@/lib/prefs';
 import { C, CTA_H, R, SP } from '@/lib/theme';
 
@@ -121,7 +122,7 @@ function VisualRoute() {
 function VisualPeakPoint() {
   return (
     <View style={s.peakBox}>
-      <Peak size={72} filled={false} />
+      <PeakMark size={72} color={C.border} />
       <View style={s.ring} />
       <View style={s.glowPoint} />
     </View>
@@ -132,29 +133,10 @@ function VisualPeakPoint() {
 function VisualFilled() {
   return (
     <View style={s.silhouettes}>
-      <Peak size={56} filled />
-      <Peak size={80} filled={false} />
-      <Peak size={64} filled />
+      <PeakMark size={56} color={C.success} />
+      <PeakMark size={80} color={C.border} />
+      <PeakMark size={64} color={C.success} />
     </View>
-  );
-}
-
-// border-trick 삼각형 봉우리. filled=완등(초록), 아니면 윤곽선만.
-function Peak({ size, filled }: { size: number; filled: boolean }) {
-  const w = size * 1.15;
-  return (
-    <View
-      style={{
-        width: 0,
-        height: 0,
-        borderLeftWidth: w / 2,
-        borderRightWidth: w / 2,
-        borderBottomWidth: size,
-        borderLeftColor: 'transparent',
-        borderRightColor: 'transparent',
-        borderBottomColor: filled ? C.success : C.border,
-      }}
-    />
   );
 }
 

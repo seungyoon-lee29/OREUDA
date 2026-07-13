@@ -3,9 +3,11 @@ import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View }
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { logout } from '@/lib/api';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
+import { PeakMark } from '@/components/PeakMark';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs, useVerifiedSet } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
+import { tierFor } from '@/lib/tiers';
 import { C, MONO, R, SP } from '@/lib/theme';
 
 function useDrafts(): Draft[] {
@@ -22,6 +24,8 @@ export default function Records() {
   const drafts = useDrafts();
   const { data, isLoading, isError, refetch } = useMeClimbs();
   const setAuthed = useSession((s) => s.setAuthed);
+  // 완등 마크는 현재 등급 색으로 — 등급이 오르면 마크 색도 따라 오른다.
+  const tierColor = tierFor(useVerifiedSet().size).color;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -97,8 +101,9 @@ export default function Records() {
               });
             }}
           >
-            {/* 난이도 뱃지 + 인증 상태 칩 */}
+            {/* 완등 마크(등급 색) + 난이도 뱃지 + 인증 상태 칩 */}
             <View style={s.cardHeader}>
+              {item.status === 'verified' && <PeakMark size={20} color={tierColor} />}
               {item.course?.difficulty && (
                 <View style={s.difficultyBadge}>
                   <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[item.course.difficulty] }]} />
