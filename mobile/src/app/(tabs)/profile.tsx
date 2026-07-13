@@ -1,10 +1,7 @@
-import { Link, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { logout } from '@/lib/api';
 import { PeakMark } from '@/components/PeakMark';
 import { useVerifiedSet } from '@/lib/colored';
-import { isGuest, setGuest } from '@/lib/prefs';
 import { useSession } from '@/lib/stores';
 import {
   ALL_CLEAR_BADGE, hasAllClear, nextTier, tierFor, SUMMIT_GOAL,
@@ -13,21 +10,13 @@ import { C, MONO, R, SP } from '@/lib/theme';
 
 // 프로필 — 등급/완등 현황/배지. 정체성 헤드라인은 닉네임이 아니라 '등급 이름'(백엔드 /me 호출 없음).
 export default function Profile() {
-  const router = useRouter();
-  const setAuthed = useSession((s) => s.setAuthed);
+  const signOut = useSession((s) => s.signOut); // 게이트가 /login으로 + 로컬 데이터 purge
   const done = useVerifiedSet().size; // 완등 코스 수 SSOT
-  const guest = isGuest();
 
   const tier = tierFor(done);
   const next = nextTier(done);
   const allClear = hasAllClear(done);
   const badges = [ALL_CLEAR_BADGE]; // ponytail: 배지 1개 — 배열로 감싸 미래 확장 대비
-
-  const signOut = async () => {
-    await logout();
-    setGuest(false);
-    setAuthed(false); // 게이트가 /login으로
-  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -40,7 +29,7 @@ export default function Profile() {
           </View>
           <Text style={s.tierName}>{tier.name}</Text>
           <View style={s.accountChip}>
-            <Text style={s.accountChipText}>{guest ? '게스트' : '계정'}</Text>
+            <Text style={s.accountChipText}>계정</Text>
           </View>
         </View>
 
@@ -78,26 +67,15 @@ export default function Profile() {
           ))}
         </View>
 
-        {/* ── 게스트 넛지 */}
-        {guest && (
-          <View style={s.nudge}>
-            <Text style={s.nudgeText}>게스트로 이용 중 — 계정을 만들면 기록이 안전해요</Text>
-            {/* ponytail: v0엔 계정 전환 플로우 없음 — 가입 화면으로 넛지만 */}
-            <Link href="/signup" style={s.nudgeLink}>계정 만들기</Link>
-          </View>
-        )}
-
-        {/* ── 로그아웃 — 게스트는 숨김(랜덤 계정이라 로그아웃 시 재로그인 불가 → 넛지 '계정 만들기'만 노출) */}
-        {!guest && (
-          <TouchableOpacity
-            style={s.logoutBtn}
-            onPress={signOut}
-            accessibilityRole="button"
-            accessibilityLabel="로그아웃"
-          >
-            <Text style={s.logoutText}>로그아웃</Text>
-          </TouchableOpacity>
-        )}
+        {/* ── 로그아웃 */}
+        <TouchableOpacity
+          style={s.logoutBtn}
+          onPress={signOut}
+          accessibilityRole="button"
+          accessibilityLabel="로그아웃"
+        >
+          <Text style={s.logoutText}>로그아웃</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -176,18 +154,6 @@ const s = StyleSheet.create({
     borderRadius: R.pill,
   },
   badgeChipText: { fontSize: 11, fontWeight: '700', color: C.success },
-
-  // 게스트 넛지
-  nudge: {
-    padding: SP.lg,
-    backgroundColor: C.surfaceDeep,
-    borderRadius: R.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    gap: SP.sm,
-  },
-  nudgeText: { fontSize: 13, color: C.body, lineHeight: 20 },
-  nudgeLink: { fontSize: 14, fontWeight: '600', color: C.success },
 
   // 로그아웃 — ghost/danger 텍스트
   logoutBtn: { alignItems: 'center', paddingVertical: SP.lg, marginTop: SP.sm },

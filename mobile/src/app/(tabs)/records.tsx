@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { logout } from '@/lib/api';
 import { PeakMark } from '@/components/PeakMark';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs, useVerifiedSet } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
@@ -23,7 +22,7 @@ export default function Records() {
   const router = useRouter();
   const drafts = useDrafts();
   const { data, isLoading, isError, refetch } = useMeClimbs();
-  const setAuthed = useSession((s) => s.setAuthed);
+  const signOut = useSession((s) => s.signOut);
   // 완등 마크는 현재 등급 색으로 — 등급이 오르면 마크 색도 따라 오른다.
   const tierColor = tierFor(useVerifiedSet().size).color;
 
@@ -32,7 +31,7 @@ export default function Records() {
       {/* 헤더 */}
       <View style={s.header}>
         <Text style={s.title}>기록</Text>
-        <TouchableOpacity onPress={() => logout().then(() => setAuthed(false))}>
+        <TouchableOpacity onPress={signOut} accessibilityRole="button" accessibilityLabel="로그아웃">
           <Text style={s.logout}>로그아웃</Text>
         </TouchableOpacity>
       </View>

@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import type { QueryClient } from '@tanstack/react-query';
-import { api, ApiError } from './api';
+import { api, ApiError, currentSessionGen } from './api';
 import { ClimbResponseSchema, type ClimbPayload, type Course } from './schemas';
 
 // 04 §3 outbox + 산 상세 프리페치 캐시 (위저드의 오프라인 판정 소스)
@@ -82,6 +82,17 @@ export function getActiveHike(): ActiveHike | null {
 export function clearHike() {
   db.runSync('DELETE FROM active_hike WHERE id = 1');
   emitHike();
+}
+
+// 로그아웃 시 디바이스-로컬 완등 데이터 전부 폐기 — 다음 계정이 이전 사용자의
+// 큐/진행세션/캐시를 상속하지 못하게(오귀속 차단). outbox·active_hike엔 소유자가 없으므로.
+// ponytail: 계정 스위칭이 드문 v0라 전역 purge로 충분. 계정별 스코핑은 멀티유저 디바이스가 흔해지면 v1.
+export function purgeLocalData() {
+  db.runSync('DELETE FROM climb_drafts');
+  db.runSync('DELETE FROM active_hike WHERE id = 1');
+  emit();
+  emitHike();
+  queryClient?.clear();
 }
 
 // ---- outbox ----
@@ -173,9 +184,13 @@ let queryClient: QueryClient | null = null;
 export async function flush() {
   if (inFlight) return;
   inFlight = true;
+  const gen = currentSessionGen(); // 이 flush가 속한 세션
   try {
     const drafts = listDrafts(['queued']);
     for (const d of drafts) {
+      // 로그아웃/계정전환이 flush 도중 일어나면 스냅샷의 남은 draft가 새 계정 토큰으로
+      // 나가 오귀속됨 → 중단. 이 draft들은 purge로 이미 삭제됐거나 다음 세션에서 재큐.
+      if (currentSessionGen() !== gen) break;
       db.runSync(
         "UPDATE climb_drafts SET state = 'uploading', attempt_count = attempt_count + 1, last_attempt_at = ? WHERE local_uuid = ?",
         [new Date().toISOString(), d.local_uuid],
