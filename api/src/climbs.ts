@@ -137,41 +137,49 @@ export class ClimbsController {
     const flags = computeFlags({ distanceM, radiusM, isMock: dto.isMock, speedKmh });
 
     try {
+      // 하루 1회 충돌은 on conflict do nothing으로 원자 판정 (uq_climbs_daily = partial: verified & !deleted).
+      // 구현은 SELECT→INSERT 2쿼리라, 경쟁 삭제로 슬롯이 빈 사이 유효 기록이 rejected로 유실됐다(#4b).
+      // ON CONFLICT는 삽입 시점의 라이브 verified 유무를 원자적으로 판정 → 슬롯이 비면 정상 verified 저장.
+      // client_ref 충돌은 이 arbiter가 아니라 예외로 올라와 아래 catch에서 replay 분기(ADR-002 제약-디스패치 유지).
       const [row] = await this.db.query(
         `insert into climbs (user_id, course_id, client_ref, verified_point,
            gps_accuracy_m, is_mock, status, flags, distance_m, captured_at)
          values ($1, $2, $3, st_setsrid(st_makepoint($4, $5), 4326)::geography,
-           $6, $7, 'verified', $8, $9, $10) ${CLIMB_RETURNING}`,
+           $6, $7, 'verified', $8, $9, $10)
+         on conflict (user_id, course_id, climbed_on)
+           where status = 'verified' and deleted_at is null
+         do nothing ${CLIMB_RETURNING}`,
         [userId, dto.courseId ?? null, dto.clientRef, dto.lng, dto.lat,
          dto.accuracyM, dto.isMock, flags, distanceM, dto.capturedAt],
       );
-      return toResponse(row); // 201
+      if (row) return toResponse(row); // 201 — 삽입 성공(슬롯 비어 있었음)
+
+      // do nothing = 그 순간 라이브 verified 중복 존재 → duplicate_day rejected로 종결 (02 §3, §5.2)
+      // ponytail: 단일 upsert-or-nothing이라, do-nothing 직후 그 verified가 삭제되면 여기 existing이 null이 될 수 있다.
+      //   그 경우 existingClimbId=null로 duplicate_day 반환 — 유실은 아님(rejected 행이 남아 client_ref replay 가능),
+      //   원 #4b(흔한 충돌 경로 유실)보다 훨씬 좁은 창. 없애려면 트랜잭션이 필요한데 ADR-002가 금지 → v0 허용.
+      const [existing] = await this.db.query(
+        `select id from climbs
+         where user_id = $1 and course_id = $2 and climbed_on = kst_date($3)
+           and status = 'verified' and deleted_at is null`,
+        [userId, dto.courseId ?? null, dto.capturedAt],
+      );
+      const [rejected] = await this.db.query(
+        `insert into climbs (user_id, course_id, client_ref, verified_point,
+           gps_accuracy_m, is_mock, status, flags, distance_m, captured_at)
+         values ($1, $2, $3, st_setsrid(st_makepoint($4, $5), 4326)::geography,
+           $6, $7, 'rejected', '{}', $8, $9) ${CLIMB_RETURNING}`,
+        [userId, dto.courseId ?? null, dto.clientRef, dto.lng, dto.lat,
+         dto.accuracyM, dto.isMock, distanceM, dto.capturedAt],
+      );
+      res.status(200);
+      return toResponse(rejected, { reason: 'duplicate_day', existingClimbId: existing?.id });
     } catch (e: any) {
-      const constraint = e?.driverError?.constraint;
-      if (constraint === 'uq_climbs_client_ref') {
+      if (e?.driverError?.constraint === 'uq_climbs_client_ref') {
         // 동시 재제출 레이스 — 저장된 결과 재생
         const row = await this.findByClientRef(userId, dto.clientRef);
         res.status(200);
         return toResponse(row, { replayed: true });
-      }
-      if (constraint === 'uq_climbs_daily') {
-        // 하루 1회 충돌 → duplicate_day rejected로 종결 (02 §3, §5.2)
-        const [existing] = await this.db.query(
-          `select id from climbs
-           where user_id = $1 and course_id = $2 and climbed_on = kst_date($3)
-             and status = 'verified' and deleted_at is null`,
-          [userId, dto.courseId, dto.capturedAt],
-        );
-        const [row] = await this.db.query(
-          `insert into climbs (user_id, course_id, client_ref, verified_point,
-             gps_accuracy_m, is_mock, status, flags, distance_m, captured_at)
-           values ($1, $2, $3, st_setsrid(st_makepoint($4, $5), 4326)::geography,
-             $6, $7, 'rejected', '{}', $8, $9) ${CLIMB_RETURNING}`,
-          [userId, dto.courseId ?? null, dto.clientRef, dto.lng, dto.lat,
-           dto.accuracyM, dto.isMock, distanceM, dto.capturedAt],
-        );
-        res.status(200);
-        return toResponse(row, { reason: 'duplicate_day', existingClimbId: existing?.id });
       }
       throw e;
     }

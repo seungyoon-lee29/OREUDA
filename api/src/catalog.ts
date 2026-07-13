@@ -6,6 +6,10 @@ import { err } from './http';
 export function parseBbox(raw: string | undefined): [number, number, number, number] | null {
   const parts = (raw ?? '').split(',').map(Number);
   if (parts.length !== 4 || parts.some(Number.isNaN)) return null;
+  const [minLng, minLat, maxLng, maxLat] = parts;
+  // 신뢰경계 검증: 범위밖·역순 bbox는 st_makeenvelope가 전 세계 envelope로 새어 전 코스를 반환한다 → 400 거절.
+  if (minLng < -180 || maxLng > 180 || minLat < -90 || maxLat > 90) return null;
+  if (minLng >= maxLng || minLat >= maxLat) return null;
   return parts as [number, number, number, number];
 }
 

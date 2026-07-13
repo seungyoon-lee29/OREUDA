@@ -55,4 +55,13 @@ test('parseBbox', () => {
   assert.equal(parseBbox(''), null);
   assert.equal(parseBbox('1,2,3'), null);
   assert.equal(parseBbox('1,2,3,abc'), null);
+  // 신뢰경계: 역순(min>max) 거절 — 전 코스 새어나감 방지
+  assert.equal(parseBbox('127.1,37.4,126.9,37.7'), null); // minLng>maxLng
+  assert.equal(parseBbox('126.9,37.7,127.1,37.4'), null); // minLat>maxLat
+  assert.equal(parseBbox('126.9,37.4,126.9,37.7'), null); // 경도 0폭(degenerate)
+  // 범위밖 거절
+  assert.equal(parseBbox('-181,37.4,127.1,37.7'), null); // lng < -180
+  assert.equal(parseBbox('126.9,37.4,127.1,91'), null); // lat > 90
+  // 경계값 통과: 정확히 ±180/±90
+  assert.deepEqual(parseBbox('-180,-90,180,90'), [-180, -90, 180, 90]);
 });
