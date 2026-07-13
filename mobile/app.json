@@ -46,7 +46,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "인증 순간의 위치로 완등을 확인합니다. 백그라운드 추적은 하지 않습니다."
+          "locationWhenInUsePermission": "등반 중 정상까지 남은 거리를 실시간으로 안내하고 완등을 인증하기 위해 앱 사용 중에만 위치를 사용합니다. 백그라운드 추적은 하지 않습니다."
         }
       ],
       [

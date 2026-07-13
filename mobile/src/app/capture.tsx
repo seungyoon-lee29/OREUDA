@@ -10,7 +10,7 @@ import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
 import { attachCourse, cacheCourses, clearHike, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
-import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { C, R, SP, CTA_H, MONO } from '@/lib/theme';
 
 // 04 §4.1 캡처 위저드 상태머신. 지도 렌더 비의존 — 입력은 위치 1점 + 프리페치 코스 (04 §5).
@@ -296,8 +296,9 @@ function Captured({
   const enter = useSharedValue(0);
   const pop = useSharedValue(0.6);
   useEffect(() => {
-    enter.value = withTiming(1, { duration: 260 });
-    pop.value = withDelay(90, withSpring(1, { damping: 11, stiffness: 150, mass: 0.8 }));
+    // reduce-motion 켜지면 애니 없이 최종값으로 점프(reanimated 내장 처리) — 접근성.
+    enter.value = withTiming(1, { duration: 260, reduceMotion: ReduceMotion.System });
+    pop.value = withDelay(90, withSpring(1, { damping: 11, stiffness: 150, mass: 0.8, reduceMotion: ReduceMotion.System }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const contentStyle = useAnimatedStyle(() => ({
