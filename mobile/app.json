@@ -8,7 +8,6 @@
     "scheme": "mobile",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.anonymous.mobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
