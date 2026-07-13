@@ -40,6 +40,17 @@ cd mobile && npx expo start        # 폰과 같은 Wi-Fi
 
 최소 코드가 정답. 사다리: ①필요없으면 스킵 ②이미 있으면 재사용 ③stdlib ④플랫폼 기능 ⑤기존 의존성 ⑥한 줄 ⑦그다음에야 최소 구현. 의도적 축소는 `ponytail:` 주석으로 남긴다. 단, 입력 검증·에러 처리·시크릿·접근성은 절대 축소 안 함.
 
+## 작업 규칙 (AI 위임·리뷰)
+
+- **메인 모델은 판단만** — 플랜·아키텍처·최종 리뷰만 직접. 조사·구현·문서 수정 등 생산 작업은 서브에이전트에 위임. 단 **trivial한 건(한 줄 수정·오타·순수 읽기·자명한 조회)은 직접 OK** — 콜드 스타트 위임이 결과를 안 바꿀 때. 그 이상은 위임하고, 굳이 직접 하려면 먼저 사용자 허락.
+- **확정 게이트는 리스크에 비례**:
+  - **틀리면 비싼 것**(지오 판정 `geography`/`ST_DWithin`·DB 마이그레이션·RLS·멱등성·시크릿) = 리뷰 → 적대적 리뷰 → 메인 판단 후 반영.
+  - **일반 코드** = 리뷰 1패스 + 판단. **docs·문구** = 게이트 생략.
+- **적대적 리뷰는 원 작성자와 다른 모델로** — 같은 모델의 자기 리뷰는 블라인드 스팟이 상관됨. codex를 기본 적대자로, 없으면 다른 관점의 서브에이전트.
+- **완료 게이트** — "완료" 선언 전 `node scripts/smoke.mjs`(또는 `/smoke-test`) 통과, 앱 변경은 실제 런타임(시뮬/폰)으로 확인.
+- **스킬/MCP는 메인·서브 공통으로 작업 전 확인**하고 맞으면 쓴다(`/smoke-test`·`/db-migrate` 등). deferred MCP는 `ToolSearch`로 로드 후 사용. 위임 시 후보 스킬/MCP를 프롬프트에 명시하고 결과에서 실제 사용 여부를 검증한다.
+- 경로별 상세 규칙은 `.claude/rules/*.md`가 해당 파일 편집 시 자동 로드 — API 설계(`api-design.md`), 테스트(`testing.md`).
+
 ## 시크릿 취급 (엄수)
 
 - `**/.env`는 gitignore. `DATABASE_URL`·`JWT_SECRET` 값은 **절대 출력/로그/커밋 안 함**. 구조 확인은 마스킹·grep으로만.
@@ -49,3 +60,17 @@ cd mobile && npx expo start        # 폰과 같은 Wi-Fi
 ## 지금 상태
 
 백엔드·DB·앱 코드 완성, 프로덕션 배포+스모크 통과. **앱 런타임 검증만 남음**(iOS 시뮬레이터 진행 중). 자세한 진행은 `HANDOFF.md`와 Claude 메모리 참조.
+
+## Agent skills
+
+### Issue tracker
+
+이 저장소의 이슈는 GitHub Issues에서 관리한다. 자세한 규칙은 `docs/agents/issue-tracker.md`를 참조한다.
+
+### Triage labels
+
+기본 triage 라벨 어휘를 사용한다. 자세한 매핑은 `docs/agents/triage-labels.md`를 참조한다.
+
+### Domain docs
+
+단일 컨텍스트 구조를 사용한다. 자세한 규칙은 `docs/agents/domain.md`를 참조한다.
