@@ -8,7 +8,8 @@ import * as Crypto from 'expo-crypto';
 import { api } from '@/lib/api';
 import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
-import { attachCourse, cacheCourses, clearHike, finalizeCapture, flush, getCachedCourses, insertCapture } from '@/lib/outbox';
+import { attachCourse, cacheCourses, clearHike, finalizeCapture, flush, getActiveHike, getCachedCourses, insertCapture } from '@/lib/outbox';
+import { computeHikeSummary, type HikeSummary } from '@/lib/hikeStats';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { C, R, SP, CTA_H, MONO } from '@/lib/theme';
@@ -23,7 +24,7 @@ type WizardState =
   | { key: 'low_accuracy'; accuracy: number }
   | { key: 'out_of_range'; distanceM: number; courseName: string }
   | { key: 'select_course'; nearest: Course; clientRef: string }
-  | { key: 'captured'; clientRef: string; courseName: string | null }
+  | { key: 'captured'; clientRef: string; courseName: string | null; summary: HikeSummary | null }
   | { key: 'priming' }
   | { key: 'no_courses' };
 
@@ -42,6 +43,8 @@ export default function Capture() {
   const pendingRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const hapticFiredRef = useRef(false);
+  const summitAltRef = useRef<number | null>(null); // 인증 시점 GPS 고도(정상) — 운동 요약 경사도용
+  const summitAtRef = useRef<string | null>(null); // 정상 도달(=인증 fix) 시각 — 운동 시간 종료점
 
   const { data: meClimbs } = useMeClimbs();
 
@@ -101,6 +104,8 @@ export default function Capture() {
     const accuracy = loc.coords.accuracy ?? 999;
     if (accuracy > 100) return setState({ key: 'low_accuracy', accuracy: Math.round(accuracy) });
 
+    summitAltRef.current = loc.coords.altitude ?? null; // 정상 고도 — 시작 고도와의 델타로 경사도 산출
+
     const fix: CapturedFix = {
       lat: loc.coords.latitude,
       lng: loc.coords.longitude,
@@ -108,6 +113,7 @@ export default function Capture() {
       isMock: (loc as any).mocked ?? false, // Android 한정, iOS 항상 false (03 §5)
       capturedAt: new Date(loc.timestamp).toISOString(),
     };
+    summitAtRef.current = fix.capturedAt; // 운동 종료점 = 정상 도달 시각(탭 순간 아님)
 
     // 로컬 판정: haversine 미터 vs verifyRadiusM (04 §5)
     const withDist = list
@@ -161,8 +167,22 @@ export default function Capture() {
     pendingRef.current = null;
     if (courseId) attachCourse(clientRef, courseId);
     else finalizeCapture(clientRef);
+    // 운동 요약은 clearHike 전에 계산 — started_at·시작고도가 active_hike에 있어야 하므로.
+    // 등반을 '시작'했고(활성 세션 존재) 코스를 선택했을 때만 요약 가능(거리=코스 실측 길이).
+    const hike = getActiveHike();
+    const course = courseId ? courses.find((c) => c.id === courseId) : null;
+    const summary =
+      hike && summitAtRef.current
+        ? computeHikeSummary({
+            startedAt: hike.startedAt,
+            endedAtMs: Date.parse(summitAtRef.current),
+            distanceM: course?.distanceM ?? null,
+            startAltitude: hike.startAltitude,
+            endAltitude: summitAltRef.current,
+          })
+        : null;
     clearHike(); // 인증 성공 = 등반 세션 종료 (지도 배너 사라짐)
-    setState({ key: 'captured', clientRef, courseName });
+    setState({ key: 'captured', clientRef, courseName, summary });
     flush(); // 온라인이면 즉시 제출 시도
   };
 
@@ -261,6 +281,7 @@ export default function Capture() {
       {state.key === 'captured' && (
         <Captured
           courseName={state.courseName}
+          summary={state.summary}
           totalMountains={meClimbs?.totalMountains ?? 0}
           onMap={() => router.back()}
           onRecords={() => router.navigate('/(tabs)/records')}
@@ -282,13 +303,42 @@ function Center({ title, body, children }: { title: string; body?: string; child
 
 // 감정적 핵심 — 진입 시 콘텐츠 스프링 스케일업 + 페이드, 체크 엠블럼은 살짝 늦게 팝(성공 햅틱과 동시).
 // 히어로는 그라데이션/SVG 없이 successSoft 헤일로 + success 원판 + ✓ 텍스트의 View 조합.
+const fmtDuration = (min: number) => (min < 60 ? `${min}분` : `${Math.floor(min / 60)}시간 ${min % 60}분`);
+
+// 운동 요약 카드 — 완등 순간의 로컬 통계(시간·거리 실측, 경사도 GPS 측정, 칼로리 추정).
+// 측정 불가값('—')은 숨기지 않고 그대로 표기 → 무엇이 추정/미측정인지 정직하게 드러낸다.
+function StatGrid({ summary }: { summary: HikeSummary }) {
+  const cells = [
+    { label: '운동 시간', value: fmtDuration(summary.durationMin) },
+    { label: '운동 거리', value: summary.distanceM != null ? fmtDist(summary.distanceM) : '—' },
+    { label: '평균 속도', value: summary.avgSpeedKmh != null ? `${summary.avgSpeedKmh.toFixed(1)}km/h` : '—' },
+    { label: '평균 경사도', value: summary.gradientPct != null ? `${summary.gradientPct.toFixed(1)}%` : '—' },
+    { label: '예상 소모', value: `${summary.calories}kcal` },
+  ];
+  return (
+    <View style={s.statPanel}>
+      <View style={s.statGrid}>
+        {cells.map((c) => (
+          <View key={c.label} style={s.statCell}>
+            <Text style={s.statValue}>{c.value}</Text>
+            <Text style={s.statLabel}>{c.label}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={s.statNote}>* 칼로리는 65kg 기준 추정, 경사도는 GPS 고도 기준</Text>
+    </View>
+  );
+}
+
 function Captured({
   courseName,
+  summary,
   totalMountains,
   onMap,
   onRecords,
 }: {
   courseName: string | null;
+  summary: HikeSummary | null;
   totalMountains: number;
   onMap: () => void;
   onRecords: () => void;
@@ -324,6 +374,7 @@ function Captured({
           <Text style={s.counterText}>지금까지 {totalMountains}좌 완등</Text>
         </View>
       )}
+      {summary && <StatGrid summary={summary} />}
       <TouchableOpacity style={s.btn} onPress={onMap}>
         <Text style={s.btnText}>지도로 돌아가기</Text>
       </TouchableOpacity>
@@ -349,12 +400,20 @@ const s = StyleSheet.create({
   btnOutlineText: { color: C.ink, fontSize: 17, fontWeight: '700' },
 
   // captured — 앱 전체 유일한 그림자 허용(성공 모먼트 "floating trophy", design §4)
-  captured: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 120, gap: SP.lg, shadowColor: C.success, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12 },
+  captured: { flex: 1, alignItems: 'center', padding: 32, paddingTop: 88, gap: SP.md, shadowColor: C.success, shadowOpacity: 0.35, shadowRadius: 24, elevation: 12 },
   heroHalo: { width: 128, height: 128, borderRadius: 64, backgroundColor: C.successSoft, alignItems: 'center', justifyContent: 'center', marginBottom: SP.sm },
   heroEmblem: { width: 84, height: 84, borderRadius: 42, backgroundColor: C.success, alignItems: 'center', justifyContent: 'center' },
   heroCheck: { color: '#0C0E10', fontSize: 44, fontWeight: '700', lineHeight: 48 },
   counterChip: { backgroundColor: C.successSoft, paddingHorizontal: 14, paddingVertical: 6, borderRadius: R.pill },
   counterText: { fontSize: 15, fontWeight: '700', color: C.success, textAlign: 'center', fontFamily: MONO },
+
+  // 운동 요약 카드 — 플랫 표면 + border 1px(그림자 예외는 성공 히어로뿐, design §4). 숫자는 MONO로 지표 톤 통일.
+  statPanel: { alignSelf: 'stretch', backgroundColor: C.surface, borderRadius: R.card, borderWidth: 1, borderColor: C.border, padding: SP.md, gap: SP.sm },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  statCell: { width: '33.33%', alignItems: 'center', paddingVertical: SP.sm, gap: 2 },
+  statValue: { fontSize: 17, fontWeight: '700', color: C.ink, fontFamily: MONO },
+  statLabel: { fontSize: 11, color: C.faint },
+  statNote: { fontSize: 10, color: C.faint, textAlign: 'center' },
 
   // select_course — 좌측 정렬 헤더 + 카드 리스트(폼 아닌 '고르는' 비트)
   selectWrap: { flex: 1, padding: 24, paddingTop: 150, gap: SP.md },

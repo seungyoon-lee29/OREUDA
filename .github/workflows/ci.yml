@@ -37,4 +37,4 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
-      - run: node --test src/lib/colored.test.js src/lib/search.test.js src/lib/tiers.test.js
+      - run: node --test src/lib/colored.test.js src/lib/search.test.js src/lib/tiers.test.js src/lib/hikeStats.test.js

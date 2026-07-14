@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
-import { cacheCourses, clearHike, getCachedCourses, startHike } from '@/lib/outbox';
+import { cacheCourses, clearHike, getCachedCourses, setHikeStartAltitude, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
   DIFFICULTY_LABEL,
@@ -129,6 +129,8 @@ export default function MapScreen() {
         (loc) => {
           setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? -1 });
           setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
+          // 첫 fix 고도를 시작 고도로 기록 → 완등 시 정상 고도와의 델타로 평균 경사도 산출(setter가 1회만 반영).
+          if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
         },
       );
       // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
@@ -585,7 +587,17 @@ export default function MapScreen() {
                     sheetRef.current?.close();
                     // 등반 시작 = 명시적 위치 액션 → 이 시점 권한 요청(콜드 아님). 허용되면 watch 재가동.
                     Location.requestForegroundPermissionsAsync()
-                      .then((p) => setLocGranted(p.granted))
+                      .then((p) => {
+                        setLocGranted(p.granted);
+                        // 시작(들머리) 고도 원샷 캡처 → 완등 시 정상 고도와의 델타로 평균 경사도.
+                        // 포그라운드 워치 첫 fix(백업)보다 신뢰 — 폰을 주머니에 넣어 앱이 백그라운드여도 여기서 잡힘.
+                        if (p.granted)
+                          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+                            .then((loc) => {
+                              if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
+                            })
+                            .catch(() => {});
+                      })
                       .catch(() => {});
                   }
                 }}

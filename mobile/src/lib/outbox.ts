@@ -28,9 +28,17 @@ db.execSync(`
     course_id TEXT NOT NULL,
     mountain_id TEXT NOT NULL,
     course_name TEXT NOT NULL,
-    started_at TEXT NOT NULL
+    started_at TEXT NOT NULL,
+    start_altitude REAL
   );
 `);
+// 기존 설치본에 start_altitude 컬럼 추가(운동 요약 경사도용). 이미 있으면 throw → 무시.
+// ponytail: SQLite는 IF NOT EXISTS 컬럼이 없어 try/catch가 표준 관용구.
+try {
+  db.execSync('ALTER TABLE active_hike ADD COLUMN start_altitude REAL');
+} catch {
+  /* 이미 존재 */
+}
 
 // ---- 프리페치 캐시 (04 §5 프리페치 계약) ----
 export function cacheCourses(mountainId: string, courses: Course[]) {
@@ -51,7 +59,13 @@ export function getCachedCourses(mountainId: string): Course[] | null {
 // ---- 활성 등반 세션 (등반 시작 → 진행 중 → 완등 인증 사이 상태) ----
 // 등반은 몇 시간이라 앱 재시작을 넘겨 지속해야 함 → SQLite 단일 행(id=1). 완등 인증 성공 시 clear.
 // ponytail: 백그라운드 추적 없음 — 이건 "시작했다"는 세션 플래그일 뿐, 위치는 인증 순간에만 1점 사용(설계 유지).
-export type ActiveHike = { courseId: string; mountainId: string; courseName: string; startedAt: string };
+export type ActiveHike = {
+  courseId: string;
+  mountainId: string;
+  courseName: string;
+  startedAt: string;
+  startAltitude: number | null; // 등반 시작 지점 GPS 고도(첫 fix). 경사도 계산용, 없으면 null.
+};
 
 const hikeListeners = new Set<() => void>();
 function emitHike() {
@@ -71,12 +85,24 @@ export function startHike(h: { courseId: string; mountainId: string; courseName:
 }
 
 export function getActiveHike(): ActiveHike | null {
-  const row = db.getFirstSync<{ course_id: string; mountain_id: string; course_name: string; started_at: string }>(
-    'SELECT course_id, mountain_id, course_name, started_at FROM active_hike WHERE id = 1',
+  const row = db.getFirstSync<{ course_id: string; mountain_id: string; course_name: string; started_at: string; start_altitude: number | null }>(
+    'SELECT course_id, mountain_id, course_name, started_at, start_altitude FROM active_hike WHERE id = 1',
   );
   return row
-    ? { courseId: row.course_id, mountainId: row.mountain_id, courseName: row.course_name, startedAt: row.started_at }
+    ? {
+        courseId: row.course_id,
+        mountainId: row.mountain_id,
+        courseName: row.course_name,
+        startedAt: row.started_at,
+        startAltitude: row.start_altitude,
+      }
     : null;
+}
+
+// 등반 첫 GPS fix의 고도를 시작 고도로 1회 기록(경사도 계산용). WHERE start_altitude IS NULL이라
+// 첫 값만 남고(=출발지≈들머리 고도) 이후 fix는 no-op. 워치 콜백에서 매 fix 호출해도 안전.
+export function setHikeStartAltitude(altitude: number) {
+  db.runSync('UPDATE active_hike SET start_altitude = ? WHERE id = 1 AND start_altitude IS NULL', [altitude]);
 }
 
 export function clearHike() {
