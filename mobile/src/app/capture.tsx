@@ -10,7 +10,8 @@ import { MountainSchema, type Course } from '@/lib/schemas';
 import { haversineM } from '@/lib/geo';
 import { attachCourse, cacheCourses, clearHike, finalizeCapture, flush, getActiveHike, getCachedCourses, insertCapture } from '@/lib/outbox';
 import { computeHikeSummary, type HikeSummary } from '@/lib/hikeStats';
-import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs } from '@/lib/colored';
+import { newlyAchieved, verifiedByMountain } from '@/lib/mountainSets';
+import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs, useMountains } from '@/lib/colored';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
 import { C, R, SP, CTA_H, MONO } from '@/lib/theme';
 
@@ -23,7 +24,7 @@ type WizardState =
   | { key: 'fix_failed' }
   | { key: 'confirm_marginal'; fix: CapturedFix; nearest: Course; distanceM: number; accuracyM: number; reasons: ('distance' | 'accuracy')[] }
   | { key: 'select_course'; nearest: Course; clientRef: string; marginal: boolean }
-  | { key: 'captured'; clientRef: string; courseName: string | null; summary: HikeSummary | null }
+  | { key: 'captured'; clientRef: string; courseName: string | null; summary: HikeSummary | null; feats: string[] }
   | { key: 'priming' }
   | { key: 'no_courses' };
 
@@ -33,7 +34,10 @@ type CapturedFix = { lat: number; lng: number; accuracyM: number; isMock: boolea
 const fmtDist = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`);
 
 export default function Capture() {
-  const { mountainId, courseId: preselectCourseId } = useLocalSearchParams<{ mountainId: string; courseId?: string }>();
+  const params = useLocalSearchParams<{ mountainId: string; courseId?: string }>();
+  // expo-router 파라미터는 런타임에 배열일 수 있다(중복 쿼리) — 배열이면 조용히 비교가 전부 실패하므로 정규화(리뷰 HIGH)
+  const mountainId = Array.isArray(params.mountainId) ? params.mountainId[0] : params.mountainId;
+  const preselectCourseId = Array.isArray(params.courseId) ? params.courseId[0] : params.courseId;
   const router = useRouter();
   const [state, setState] = useState<WizardState>({ key: 'requesting_permission' });
   const [courses, setCourses] = useState<Course[]>([]);
@@ -46,6 +50,7 @@ export default function Capture() {
   const summitAtRef = useRef<string | null>(null); // 정상 도달(=인증 fix) 시각 — 운동 시간 종료점
 
   const { data: meClimbs } = useMeClimbs();
+  const { data: mountains } = useMountains(); // 완등 세트 배너용 카탈로그 — 미로드(오프라인)면 배너만 스킵
 
   // 성공 햅틱 — captured 진입 1회. 네이티브 모듈 미탑재 dev 빌드에서도 크래시 방지.
   useEffect(() => {
@@ -198,7 +203,22 @@ export default function Capture() {
           })
         : null;
     clearHike(); // 인증 성공 = 등반 세션 종료 (지도 배너 사라짐)
-    setState({ key: 'captured', clientRef, courseName, summary });
+    // 이번 완등으로 '새로' 달성한 산(전 코스)·세트 — 인증 직전 me/climbs 캐시 대비 직후(+이번 코스) 비교.
+    // flush 후 refetch가 캐시를 바꾸기 전에 여기서 동기 확정 → 배너가 뒤늦게 사라지는 레이스 없음.
+    // (react-query는 리페치 중에도 기존 캐시를 유지하므로 undefined는 콜드 캐시(첫 로드·오프라인)뿐 —
+    //  그 경우 배너만 조용히 스킵, profile에선 flush 후 정상 표시. 리뷰 HIGH 검토 후 수용된 엣지.)
+    const mtn = mountains?.find((m) => m.id === mountainId);
+    const ach =
+      courseId && mtn
+        ? newlyAchieved(mountains ?? [], verifiedByMountain(meClimbs?.climbs ?? []), {
+            mountainName: mtn.name,
+            courseId,
+          })
+        : null;
+    const feats = ach
+      ? [...(ach.mountain ? [`🏔 ${ach.mountain} 전 코스 완등!`] : []), ...ach.sets.map((n) => `🎖 ${n} 완성!`)]
+      : [];
+    setState({ key: 'captured', clientRef, courseName, summary, feats });
     flush(); // 온라인이면 즉시 제출 시도
   };
 
@@ -313,6 +333,7 @@ export default function Capture() {
         <Captured
           courseName={state.courseName}
           summary={state.summary}
+          feats={state.feats}
           totalMountains={meClimbs?.totalMountains ?? 0}
           onMap={() => router.back()}
           onRecords={() => router.navigate('/(tabs)/records')}
@@ -364,12 +385,14 @@ function StatGrid({ summary }: { summary: HikeSummary }) {
 function Captured({
   courseName,
   summary,
+  feats,
   totalMountains,
   onMap,
   onRecords,
 }: {
   courseName: string | null;
   summary: HikeSummary | null;
+  feats: string[]; // 이번 완등으로 새로 달성한 산·세트 축하 줄 (mountainSets.newlyAchieved 파생)
   totalMountains: number;
   onMap: () => void;
   onRecords: () => void;
@@ -400,6 +423,12 @@ function Captured({
         {courseName ?? '코스 미선택'}
         {'\n'}연결되면 자동으로 제출돼요. 늦어도 다음에 앱을 열 때.
       </Text>
+      {/* 새 달성 축하 칩 — counterChip 스타일 재사용, 별도 연출 없음(기존 진입 애니에 포함) */}
+      {feats.map((f) => (
+        <View key={f} style={s.counterChip}>
+          <Text style={s.counterText}>{f}</Text>
+        </View>
+      ))}
       {totalMountains > 0 && (
         <View style={s.counterChip}>
           <Text style={s.counterText}>지금까지 {totalMountains}좌 완등</Text>

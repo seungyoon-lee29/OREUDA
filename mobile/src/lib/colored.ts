@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
-import { MeClimbsSchema } from './schemas';
+import { MeClimbsSchema, MountainsListSchema } from './schemas';
 import { getActiveHike, pendingCourseIds, subscribeHike, subscribeOutbox, type ActiveHike } from './outbox';
 import { useSession } from './stores';
 import { C } from './theme';
@@ -26,6 +26,16 @@ export function useMeClimbs() {
     queryKey: ['me-climbs'],
     queryFn: async () => MeClimbsSchema.parse(await api('/me/climbs')),
     enabled: authed,
+  });
+}
+
+// 산 카탈로그(/mountains, courseCount 포함) — 카탈로그 불변이라 staleTime Infinity.
+// search(목록)·profile(완등 세트)·capture(축하 배너) 공용 — queryKey 공유로 1회 fetch.
+export function useMountains() {
+  return useQuery({
+    queryKey: ['mountains'],
+    queryFn: async () => MountainsListSchema.parse(await api('/mountains')),
+    staleTime: Infinity,
   });
 }
 

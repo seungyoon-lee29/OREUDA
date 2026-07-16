@@ -1,7 +1,8 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PeakMark } from '@/components/PeakMark';
-import { useVerifiedSet } from '@/lib/colored';
+import { useMeClimbs, useMountains, useVerifiedSet } from '@/lib/colored';
+import { conqueredMountains, SETS, setProgress, verifiedByMountain } from '@/lib/mountainSets';
 import { useSession } from '@/lib/stores';
 import {
   ALL_CLEAR_BADGE, hasAllClear, nextTier, tierFor, SUMMIT_GOAL,
@@ -17,6 +18,11 @@ export default function Profile() {
   const next = nextTier(done);
   const allClear = hasAllClear(done);
   const badges = [ALL_CLEAR_BADGE]; // ponytail: 배지 1개 — 배열로 감싸 미래 확장 대비
+
+  // 완등 세트(정복 세트) — 산 완등(전 코스) 클라 파생: /mountains courseCount × me/climbs 귀속
+  const { data: meClimbs } = useMeClimbs();
+  const { data: mountains = [] } = useMountains();
+  const conquered = conqueredMountains(mountains, verifiedByMountain(meClimbs?.climbs ?? []));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -66,6 +72,38 @@ export default function Profile() {
             </View>
           ))}
         </View>
+
+        {/* ── 완등 세트 — 세트별 진행 카드 + 글로벌 N/전체 산. 카탈로그 미로드(오프라인 콜드)면 글로벌만 숨김 */}
+        <View style={s.setHeader}>
+          <Text style={s.sectionTitle}>완등 세트</Text>
+          {mountains.length > 0 && (
+            <Text style={s.setGlobal}>
+              {conquered.size}/{mountains.length}산 완등
+            </Text>
+          )}
+        </View>
+        {SETS.map((set) => {
+          const p = setProgress(set, conquered);
+          const complete = p.done === p.total;
+          return (
+            <View
+              key={set.name}
+              style={[s.setCard, complete && s.setCardOn]}
+              accessible
+              accessibilityLabel={`${set.name} ${p.done}/${p.total}${complete ? ' 완성' : ''}`}
+            >
+              <Text style={s.setName}>{set.name}</Text>
+              <Text style={s.setCount}>
+                {p.done}/{p.total}
+              </Text>
+              {complete && (
+                <View style={s.badgeChip}>
+                  <Text style={s.badgeChipText}>완성</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
 
         {/* ── 로그아웃 */}
         <TouchableOpacity
@@ -154,6 +192,23 @@ const s = StyleSheet.create({
     borderRadius: R.pill,
   },
   badgeChipText: { fontSize: 11, fontWeight: '700', color: C.success },
+
+  // 완등 세트 — 배지 카드와 같은 플랫 카드 문법의 가로 행. 완성 시 success 보더 + '완성' 칩(badgeChip 재사용)
+  setHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: SP.sm },
+  setGlobal: { fontSize: 13, color: C.faint, fontFamily: MONO, fontVariant: ['tabular-nums'] },
+  setCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SP.lg,
+    backgroundColor: C.surface,
+    borderRadius: R.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: SP.sm,
+  },
+  setCardOn: { borderColor: C.success },
+  setName: { flex: 1, fontSize: 15, fontWeight: '600', color: C.ink },
+  setCount: { fontSize: 14, color: C.faint, fontFamily: MONO, fontVariant: ['tabular-nums'] },
 
   // 로그아웃 — ghost/danger 텍스트
   logoutBtn: { alignItems: 'center', paddingVertical: SP.lg, marginTop: SP.sm },
