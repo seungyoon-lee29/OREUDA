@@ -1,11 +1,11 @@
 ---
 name: smoke-test
-description: v0 백엔드 E2E 스모크 실행 — signup→courses→climbs(성공/재생/중복/mock)→me/climbs→refresh→delete 14체크. 로컬 또는 프로덕션 대상. API 바꾼 뒤나 배포 후 검증할 때.
+description: v0 백엔드 E2E 스모크 실행 — signup→courses→climbs(성공/재생/중복/mock)→me/climbs→refresh→delete 전 구간 체크. 로컬 또는 프로덕션 대상. API 바꾼 뒤나 배포 후 검증할 때.
 ---
 
 # 스모크 테스트
 
-`api/scripts/smoke.mjs` — 실DB 상대 14개 E2E 체크. `API_BASE` 환경변수로 대상 전환.
+`api/scripts/smoke.mjs` — 실DB 상대 E2E 체크 일괄. 체크 개수의 기준은 스크립트의 `N passed, M failed` 출력(문서에 개수 하드코딩 금지 — 드리프트 이력 있음). `API_BASE` 환경변수로 대상 전환.
 
 ## 실행
 
@@ -22,7 +22,7 @@ API_BASE=https://hiking-api-v0.fly.dev node api/scripts/smoke.mjs
 
 ## 커버 (경계값 포함)
 
-- courses bbox=8코스, 페이로드 계약(checkpointPoint/verifyRadiusM=150/LineString)
+- courses bbox ≥8코스(시드 확장 대비 하한 체크), 페이로드 계약(checkpointPoint/verifyRadiusM=150/LineString)
 - 잘못된 bbox → 400 `VALIDATION_BBOX` 봉투
 - **백운대 91m 지점 → 201 verified, flags []** (핵심 판정)
 - 같은 clientRef → 200 replay / 같은 날 다른 ref → rejected `duplicate_day` + existingClimbId

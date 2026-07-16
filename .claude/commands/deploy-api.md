@@ -10,7 +10,7 @@ api/ 백엔드를 Fly.io에 배포한다.
 2. 시크릿 확인: `flyctl secrets list -a hiking-api-v0` 에 `DATABASE_URL`·`JWT_SECRET` 존재 확인(값은 보지 않는다).
 3. 배포: `flyctl deploy -a hiking-api-v0`.
 4. 헬스체크: `curl -s https://hiking-api-v0.fly.dev/v1/healthz` → 200 (DB 안 건드리는 라이트 체크).
-5. 프로덕션 스모크: `API_BASE=https://hiking-api-v0.fly.dev node scripts/smoke.mjs` — 14/14 확인.
+5. 프로덕션 스모크: `API_BASE=https://hiking-api-v0.fly.dev node scripts/smoke.mjs` — `0 failed` 확인(개수 기준은 스크립트 출력).
 6. 스모크 통과하면 테스트 데이터 정리(`/smoke-test` 스킬의 마무리 SQL).
 
 주의: Fly 머신은 auto stop/start라 첫 요청 콜드스타트 2~3초 정상. 무료 정책상 헬스체크는 DB를 건드리지 않는다.
