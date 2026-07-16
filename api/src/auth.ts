@@ -52,16 +52,25 @@ export class AuthController {
   async signup(@Body() dto: SignupDto) {
     if (await this.users.exists({ where: { email: dto.email } }))
       throw err(409, 'AUTH_EMAIL_TAKEN', 'email already registered');
-    const user = await this.users.save({
-      email: dto.email,
-      password_hash: await hash(dto.password, 10),
-      nickname: dto.nickname,
-      provider: 'password',
-    });
-    return this.tokens(user.id);
+    try {
+      const user = await this.users.save({
+        email: dto.email,
+        password_hash: await hash(dto.password, 10),
+        nickname: dto.nickname,
+        provider: 'password',
+      });
+      return this.tokens(user.id);
+    } catch (e: any) {
+      // exists→save 사이 동시 가입 레이스 — email unique 충돌을 제약-이름 디스패치로 409 (api-design 규칙).
+      // 제약명은 인라인 unique의 PG 기본명(users_email_key) — 실DB pg_constraint로 확인함.
+      if (e?.driverError?.constraint === 'users_email_key')
+        throw err(409, 'AUTH_EMAIL_TAKEN', 'email already registered');
+      throw e;
+    }
   }
 
-  // ponytail: 스로틀 키는 IP만 — 02의 "IP+계정"은 커스텀 tracker 필요, 어뷰징 확인되면 추가
+  // ponytail: 로그인 스로틀 키는 IP — 비인증 경로라 UserOrIpThrottlerGuard가 IP로 폴백(api-design 규칙).
+  // 02의 "IP+계정" 복합 키는 어뷰징 확인되면 추가
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   async login(@Body() dto: LoginDto) {
