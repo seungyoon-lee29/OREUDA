@@ -11,11 +11,15 @@
 - **시뮬 눈검증(cliclick+AX)**: marginal 멀리/조금 카피·사유 병기 ✓, 그래도 인증→marginal select에서 '코스 없이' 숨김 ✓(BLOCKER UI), 도착확인·성공 시퀀스·기록 삭제버튼 노출 ✓. **자정 넘김으로 kst_date·콜드스타트 승격·선부착 제출 E2E 우연 검증** ✓. **신규 발견+수정**: records 카드가 중첩 삭제 버튼을 AX에서 가림(VoiceOver 도달 불가) → 래퍼 `accessible={false}`, AX 트리 노출 실증. L6(성공 카운터 stale 점프) 라이브 재현 — 백로그 유지.
 - **검증 최종**: api 4/4 + 로컬 스모크 18/18(일회용 JWT_SECRET 부트) · mobile tsc 0 + 22/22 · ETL validate 6/6.
 
+## 커밋·배포 완료 (2026-07-17 01시대, 사용자 승인 "차례대로 진행")
+- **커밋 5개**: 228c4f5 api / 12f369a mobile / 04b768b data 트림 / 4db7aef docs / a1b4741 스캐폴드+상태. 미커밋 잔여 0.
+- **프로덕션 DB**: seed_seoul.sql upsert(42코스, 트랜잭션) + 일자산 134m — 검증: 코스 50, 안산 서측 1118m·easy, ST_DWithin 91m=T/500m=F, checkpoint=경로끝 0.0m, source_id 42.
+- **API 배포**(Fly): healthz 200 + **프로덕션 스모크 18/18** + 스모크 데이터 정리(climbs 16·users 4).
+
 ## 다음 할 것
-1. **커밋**(사용자 결정): AGENTS.md·CONTEXT.md·docs/agents/·.scratch gitignore 여부 포함 패키징(리뷰 M4).
-2. **프로덕션 반영**(/db-migrate + /deploy-api, 승인 후): seed_seoul.sql upsert(트림) + 일자산 elevation UPDATE + api 배포. 티켓 04(summit 교정+courses 재생성)는 일자산 좌표 수동 확인 후.
-3. **시뮬 잔여 3탭**(dev client FAB가 우측 클릭 가로채서 자동화 실패): 완등 삭제 Alert 실탭, M3 등반 덮어쓰기 Alert, 트림 코스선 지도 눈확인. + **테스트 데이터 2건 정리**(앱 계정의 청계산 원터골 7/16·7/17 — 기록 탭 삭제 2탭이면 됨).
-4. 실기기 검증(frontier 01)·STITCH 키 로테이션 — 변동 없음.
+1. **시뮬 잔여 3탭**(dev client FAB가 우측 클릭 가로채서 자동화 실패 — 시뮬·Metro 살려둠): 완등 삭제 Alert 실탭(기록 탭 '삭제' — **앱 계정 테스트 완등 2건**(청계산 원터골 7/16·7/17) 삭제하면 검증+정리 동시), M3 등반 덮어쓰기 Alert, 트림 코스선(안산) 지도 눈확인.
+2. **티켓 04**(summit 교정: 우면산 소망탑·개화산 + courses checkpoint 재생성) — 일자산 해맞이광장 좌표 수동 확인(카카오/네이버 지도) 후 착수.
+3. 실기기 검증(frontier 01)·STITCH 키 로테이션 — 변동 없음.
 
 ---
 
