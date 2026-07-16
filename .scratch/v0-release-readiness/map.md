@@ -20,7 +20,8 @@
 
 - **WS1+03+02 배치: 코드·게이트 완료 (2026-07-16 저녁)** — 리뷰 게이트 전부 통과: code-reviewer 1패스 + codex 적대 2회(BLOCKER 0). 게이트 발견 반영: 스로틀 가드 auth-경로 IP 고정+refresh 불인정(HIGH 수렴 2건), capturedAt 서버 clamp(speed 우회·KST 자정 선점, MEDIUM×2), 이메일 exact 비교, 429 flush 중단, marginal 선부착 preselect 우선, testing.md 드리프트. **검증: api 4/4 · 로컬 스모크 18/18 · mobile tsc 0 · 22/22 · ETL validate 6/6.**
 - **시뮬 눈검증 완료(2026-07-17 00시대)**: marginal 카피 2변형·소프트 확인·'코스 없이' 숨김(BLOCKER UI)·성공 시퀀스·삭제 버튼 노출 ✓. kst_date 자정 경계·콜드스타트 승격 E2E 우연 검증 ✓. 신규: records 중첩 삭제 버튼 VoiceOver 미도달 발견→수정→AX 실증. 잔여 3탭(삭제 Alert·M3 Alert·트림 선 눈확인)은 dev-FAB 클릭 가로채기로 자동화 불가 — 사용자 1분 수동 or 실기기에 병합. 상세 HANDOFF 2026-07-17.
-- **잔여**: ①커밋(M4 패키징 포함) ②프로덕션 반영(/db-migrate·/deploy-api) ③앱 계정 테스트 완등 2건 삭제(기록 탭 2탭) — 전부 사용자 결정.
+- **배치 종결(2026-07-17)**: 커밋 6개 + 프로덕션 반영(DB upsert·일자산 134m·Fly 배포·프로덕션 스모크 18/18) + 잔여 3탭 사용자 확인(삭제 Alert·M3 Alert·트림 코스선) + 테스트 데이터 정리. **이번 배치 전 게이트 통과.**
+- 다음 frontier: [04 - summit 교정](./issues/04-summit-corrections.md)(일자산 좌표 확인 대기) → 정복 컬렉션(파킹 해제).
 - **WS3 완료: OK 12 / WARN 2 / RED 2** → [04 - summit 좌표 교정](./issues/04-summit-corrections.md). **우면산 = 보고된 "정상인데 인증 안 됨"의 실증**(실질 정상 소망탑이 checkpoint서 512m, 실정상은 공군부대). 일자산 좌표는 수동 확인 후 반영.
 - [01 - 실기기 등반 세션 런타임 검증](./issues/01-real-device-hike-verification.md) — ready-for-human, 최후 병합 검증.
 - 백로그(code-reviewer LOW): hikeStats 테스트 실물 import 전환.
