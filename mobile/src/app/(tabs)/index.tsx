@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   NaverMapView,
@@ -60,7 +60,7 @@ export default function MapScreen() {
   const bbox = useMemo(() => tileToBboxWithMargin(FETCH_TILE_Z, tile.x, tile.y), [tile]);
 
   // 타일 양자화 쿼리 키 + staleTime Infinity — 코스는 거의 불변 (04 §7)
-  const { data: courses } = useQuery({
+  const { data: courses, isError: coursesError, refetch: refetchCourses } = useQuery({
     queryKey: ['courses-tile', FETCH_TILE_Z, tile.x, tile.y],
     queryFn: async () =>
       CoursesSchema.parse(
@@ -459,6 +459,21 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* L5: 타일 코스 조회 실패 — 빈 지도를 '산이 없다'로 오독하지 않게 에러+재시도 pill(records 패턴) */}
+      {coursesError && (
+        <View style={[s.searchPillWrap, { top: insets.top + 64 }]} pointerEvents="box-none">
+          <TouchableOpacity
+            style={s.errorPill}
+            activeOpacity={0.85}
+            onPress={() => refetchCourses()}
+            accessibilityRole="button"
+            accessibilityLabel="코스 다시 불러오기"
+          >
+            <Text style={s.errorPillText}>코스를 불러오지 못했어요 · 다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {showRec && recommended && (
         <View style={[s.recWrap, { bottom: insets.bottom + TABBAR_CLEARANCE }]} pointerEvents="box-none">
           <View style={s.recCard}>
@@ -578,7 +593,9 @@ export default function MapScreen() {
                       pathname: '/capture',
                       params: { mountainId: mountain.id, courseId: selectedCourse.id },
                     });
-                  } else {
+                    return;
+                  }
+                  const begin = () => {
                     startHike({
                       courseId: selectedCourse.id,
                       mountainId: mountain.id,
@@ -599,6 +616,15 @@ export default function MapScreen() {
                             .catch(() => {});
                       })
                       .catch(() => {});
+                  };
+                  // M3: startHike는 INSERT OR REPLACE(단일행) — 무확인이면 진행 중 세션(경과시간·시작고도) 소리 없이 소멸
+                  if (activeHike) {
+                    Alert.alert('진행 중인 등반이 있어요', '종료하고 새로 시작할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      { text: '새로 시작', style: 'destructive', onPress: begin },
+                    ]);
+                  } else {
+                    begin();
                   }
                 }}
               >
@@ -709,6 +735,16 @@ const s = StyleSheet.create({
     paddingVertical: SP.sm,
   },
   searchPillText: { color: C.faint, fontSize: 15 },
+  // L5 에러 pill — searchPill과 동형, 텍스트만 danger 톤
+  errorPill: {
+    backgroundColor: C.glass,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.pill,
+    paddingHorizontal: SP.lg,
+    paddingVertical: SP.sm,
+  },
+  errorPillText: { color: C.dangerText, fontSize: 14, fontWeight: '500' },
   // rank15: 빈 상태 추천 카드 — glass 80% granite + 1px 보더 + 그림자 제거(플랫 원칙)
   recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
   recCard: {

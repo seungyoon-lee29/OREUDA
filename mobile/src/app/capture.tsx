@@ -21,9 +21,8 @@ type WizardState =
   | { key: 'permission_denied' }
   | { key: 'acquiring_fix' }
   | { key: 'fix_failed' }
-  | { key: 'low_accuracy'; accuracy: number }
-  | { key: 'out_of_range'; distanceM: number; courseName: string }
-  | { key: 'select_course'; nearest: Course; clientRef: string }
+  | { key: 'confirm_marginal'; fix: CapturedFix; nearest: Course; distanceM: number; accuracyM: number; reasons: ('distance' | 'accuracy')[] }
+  | { key: 'select_course'; nearest: Course; clientRef: string; marginal: boolean }
   | { key: 'captured'; clientRef: string; courseName: string | null; summary: HikeSummary | null }
   | { key: 'priming' }
   | { key: 'no_courses' };
@@ -56,6 +55,20 @@ export default function Capture() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
   }, [state.key]);
+
+  // 판정 통과(또는 marginal 소프트 확인) → durable 저장 + 코스 선택. 04 §4.1: 코스 선택 전 즉시 durable.
+  // marginal은 nearest 코스를 선부착해 저장 — 이탈(언마운트 finalize) 경로로 courseId=null 제출되면
+  // 서버가 거리 계산을 스킵해 flag 없는 verified가 되는 구멍을 막는다(적대 리뷰 BLOCKER).
+  // 코스 선택 화면에서 다른 코스를 고르면 attachCourse가 덮어쓴다.
+  const proceedToSelect = (fix: CapturedFix, nearest: Course, marginal: boolean) => {
+    const clientRef = Crypto.randomUUID();
+    pendingRef.current = clientRef; // 이탈 시 언마운트 이펙트가 finalize할 대상
+    // 선부착 코스: 진행 중 등반으로 열렸으면(preselect) 그 코스가 귀속 의도에 가깝다 —
+    // 선택 화면 강조와 동일 우선순위(리뷰 LOW). 목록에 없으면 nearest 폴백.
+    const preAttach = courses.find((c) => c.id === preselectCourseId) ?? nearest;
+    insertCapture({ courseId: marginal ? preAttach.id : null, clientRef, ...fix });
+    setState({ key: 'select_course', nearest, clientRef, marginal });
+  };
 
   const start = async (skipPriming = false) => {
     if (runningRef.current) return; // 동시 재진입 차단 → clientRef 이중 생성(중복 제출) 방지
@@ -102,8 +115,6 @@ export default function Capture() {
     }
 
     const accuracy = loc.coords.accuracy ?? 999;
-    if (accuracy > 100) return setState({ key: 'low_accuracy', accuracy: Math.round(accuracy) });
-
     summitAltRef.current = loc.coords.altitude ?? null; // 정상 고도 — 시작 고도와의 델타로 경사도 산출
 
     const fix: CapturedFix = {
@@ -124,18 +135,23 @@ export default function Capture() {
       .sort((a, b) => a.dist - b.dist);
     const nearest = withDist[0];
 
-    if (nearest.dist > nearest.course.verifyRadiusM)
+    // 판정은 관대하게(서버와 일치) — 거리·정확도 미달을 막지 않는다. marginal이면 소프트 확인('그래도 인증')으로
+    // 명시적 의도만 받고 통과 → 실 등정자는 절대 안 막고(정상 좌표 오차·GPS 오차에도 완등 가능),
+    // 서버가 distance/accuracy flag로 표시(리더보드 제외). 막다른 실패 없음(diagnosing-bugs WS1).
+    const reasons: ('distance' | 'accuracy')[] = [];
+    if (nearest.dist > nearest.course.verifyRadiusM) reasons.push('distance');
+    if (accuracy > 100) reasons.push('accuracy');
+    if (reasons.length)
       return setState({
-        key: 'out_of_range',
+        key: 'confirm_marginal',
+        fix,
+        nearest: nearest.course,
         distanceM: Math.round(nearest.dist),
-        courseName: nearest.course.name,
+        accuracyM: Math.round(accuracy),
+        reasons,
       });
 
-    // 04 §4.1: 판정 통과 = 성공. 코스 선택 전에 즉시 durable 저장 → 여기서 이탈해도 캡처 보존.
-    const clientRef = Crypto.randomUUID();
-    pendingRef.current = clientRef; // 이탈 시 언마운트 이펙트가 finalize할 대상
-    insertCapture({ courseId: null, clientRef, ...fix });
-    setState({ key: 'select_course', nearest: nearest.course, clientRef });
+    proceedToSelect(fix, nearest.course, false);
     } finally {
       runningRef.current = false;
     }
@@ -190,28 +206,28 @@ export default function Capture() {
   const close = () => router.back();
 
   const retry = (
-    <TouchableOpacity style={s.btn} onPress={() => start()}>
+    <TouchableOpacity style={s.btn} onPress={() => start()} accessibilityRole="button">
       <Text style={s.btnText}>다시 시도</Text>
     </TouchableOpacity>
   );
 
   return (
     <SafeAreaView style={s.wrap}>
-      <TouchableOpacity style={s.close} onPress={close}>
+      <TouchableOpacity style={s.close} onPress={close} accessibilityRole="button" accessibilityLabel="닫기">
         <Text style={s.closeText}>✕</Text>
       </TouchableOpacity>
 
       {state.key === 'requesting_permission' && <Center title="위치 권한 확인 중…" />}
       {state.key === 'priming' && (
         <Center title="위치 권한이 필요해요" body="인증하는 순간의 위치만 딱 한 번 사용해요. 백그라운드 추적은 하지 않아요.">
-          <TouchableOpacity style={s.btn} onPress={() => start(true)}>
+          <TouchableOpacity style={s.btn} onPress={() => start(true)} accessibilityRole="button">
             <Text style={s.btnText}>위치 허용하고 인증</Text>
           </TouchableOpacity>
         </Center>
       )}
       {state.key === 'permission_denied' && (
         <Center title="위치 권한이 필요해요" body="인증 순간의 위치로만 완등을 확인해요. 백그라운드 추적은 하지 않아요.">
-          <TouchableOpacity style={s.btn} onPress={() => Linking.openSettings()}>
+          <TouchableOpacity style={s.btn} onPress={() => Linking.openSettings()} accessibilityRole="button">
             <Text style={s.btnText}>설정 열기</Text>
           </TouchableOpacity>
           {retry}
@@ -219,18 +235,28 @@ export default function Capture() {
       )}
       {state.key === 'acquiring_fix' && <Center title="GPS 신호를 찾는 중…" body="하늘이 트인 곳에서 잠시만 기다려주세요" />}
       {state.key === 'fix_failed' && <Center title="GPS를 잡지 못했어요" body="하늘이 트인 곳으로 이동해보세요">{retry}</Center>}
-      {state.key === 'low_accuracy' && (
-        <Center title="정확도가 낮아요" body={`현재 오차 ±${state.accuracy}m — 100m 이하일 때 인증할 수 있어요`}>{retry}</Center>
-      )}
-      {state.key === 'out_of_range' && (
+      {state.key === 'confirm_marginal' && (
         <Center
-          title={state.distanceM <= 200 ? '거의 다 왔어요!' : '체크포인트가 아직 멀어요'}
+          title={
+            state.reasons.includes('distance')
+              ? state.distanceM > 1000
+                ? '체크포인트에서 멀리 있어요'
+                : '체크포인트에서 조금 떨어져 있어요'
+              : 'GPS 정확도가 낮아요'
+          }
           body={
-            state.distanceM <= 200
-              ? `${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)}`
-              : `${state.courseName} 체크포인트까지 ${fmtDist(state.distanceM)} 남았어요`
+            // 사유 전부 표시 — 거리·정확도 복합이면 둘 다 (카피 정직성, 적대 리뷰 LOW)
+            [
+              state.reasons.includes('distance') && `${state.nearest.name} 체크포인트까지 ${fmtDist(state.distanceM)}`,
+              state.reasons.includes('accuracy') && `GPS 오차 ±${state.accuracyM}m`,
+            ]
+              .filter(Boolean)
+              .join('\n') + '\n정상에 있다면 그대로 인증하세요. 완등으로 기록돼요.'
           }
         >
+          <TouchableOpacity style={s.btn} onPress={() => proceedToSelect(state.fix, state.nearest, true)} accessibilityRole="button">
+            <Text style={s.btnText}>그래도 인증하기</Text>
+          </TouchableOpacity>
           {retry}
         </Center>
       )}
@@ -258,6 +284,7 @@ export default function Capture() {
                 key={c.id}
                 style={[s.courseBtn, isHighlighted && s.courseBtnNearest]}
                 onPress={() => chooseCourse(state.clientRef, c.id, c.name)}
+                accessibilityRole="button"
               >
                 <View style={s.difficultyBadge}>
                   <View style={[s.dot, { backgroundColor: DIFFICULTY_COLOR[c.difficulty ?? 'moderate'] }]} />
@@ -272,9 +299,13 @@ export default function Capture() {
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity style={s.laterBtn} onPress={() => chooseCourse(state.clientRef, null, null)}>
-            <Text style={s.laterText}>나중에 선택할게요</Text>
-          </TouchableOpacity>
+          {/* marginal 캡처는 코스 명시 필수 — courseId=null이면 서버가 거리 flag를 못 단다(적대 리뷰 BLOCKER) */}
+          {!state.marginal && (
+            <TouchableOpacity style={s.laterBtn} onPress={() => chooseCourse(state.clientRef, null, null)} accessibilityRole="button">
+              {/* 정직한 카피 — 사후 코스 부착 경로가 없으므로 '나중에'를 약속하지 않는다 */}
+              <Text style={s.laterText}>코스 없이 기록할게요</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -375,10 +406,10 @@ function Captured({
         </View>
       )}
       {summary && <StatGrid summary={summary} />}
-      <TouchableOpacity style={s.btn} onPress={onMap}>
+      <TouchableOpacity style={s.btn} onPress={onMap} accessibilityRole="button">
         <Text style={s.btnText}>지도로 돌아가기</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={s.btnOutline} onPress={onRecords}>
+      <TouchableOpacity style={s.btnOutline} onPress={onRecords} accessibilityRole="button">
         <Text style={s.btnOutlineText}>기록 보기</Text>
       </TouchableOpacity>
     </Animated.View>

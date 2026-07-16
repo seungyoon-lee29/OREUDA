@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import type { QueryClient } from '@tanstack/react-query';
 import { api, ApiError, currentSessionGen } from './api';
+import { lastAccount, setLastAccount } from './prefs';
 import { ClimbResponseSchema, type ClimbPayload, type Course } from './schemas';
 
 // 04 §3 outbox + 산 상세 프리페치 캐시 (위저드의 오프라인 판정 소스)
@@ -121,6 +122,17 @@ export function purgeLocalData() {
   queryClient?.clear();
 }
 
+// 로그인/가입 성공 시 단일 초크포인트 — 다른 계정이면 purge(오귀속 차단), 같은 계정 재로그인이면
+// draft 보존 + flush. stores.ts의 보존 의도(refresh 만료 → 같은 계정 재로그인 시 미전송 완등 유지) 실현.
+export function reconcileLocalDataForAccount(email: string) {
+  // exact 비교 — 서버가 email을 대소문자 구분 매칭하므로(auth.ts) lowercase 정규화하면
+  // 다른 서버 계정(Foo@ vs foo@)을 같은 계정으로 오판해 draft가 오귀속된다(리뷰 MEDIUM).
+  const account = email.trim();
+  if (lastAccount() !== account) purgeLocalData();
+  else flush(); // 보존된 draft를 새 세션 토큰으로 즉시 제출 시도
+  setLastAccount(account);
+}
+
 // ---- outbox ----
 export type Draft = {
   local_uuid: string;
@@ -237,18 +249,27 @@ export async function flush() {
         // ponytail: 서버 결과 로컬 보관 안 함(무한 누적 방지). 필요해지면 confirmed 상태 부활.
         db.runSync('DELETE FROM climb_drafts WHERE local_uuid = ?', [d.local_uuid]);
       } catch (e) {
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
-          // 4xx 종결 → failed_permanent (04 §4.2)
+        // 429·401은 4xx지만 일시적이라 종결하면 완등 유실:
+        //  - 429: 스로틀(IP 키 — CGNAT에선 남의 트래픽으로도 맞음). 시간 지나면 풀린다.
+        //  - 401: 세션 만료(refresh 실패). 같은 계정 재로그인 후 재전송돼야 한다.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 401) {
+          // 그 외 4xx 종결 → failed_permanent (04 §4.2)
           db.runSync(
             "UPDATE climb_drafts SET state = 'failed_permanent', last_error = ? WHERE local_uuid = ?",
             [`${e.code}: ${e.message}`, d.local_uuid],
           );
         } else {
-          // 5xx/네트워크/abort → queued 유지, 다음 트리거 대기
+          // 5xx/네트워크/abort/429/401 → queued 유지, 다음 트리거 대기
           db.runSync(
             "UPDATE climb_drafts SET state = 'queued', last_error = ? WHERE local_uuid = ?",
             [String(e), d.local_uuid],
           );
+          // 429는 이 flush 전체가 스로틀 상태 — 남은 draft도 전부 429일 테니 계속 치면 가중만(리뷰 LOW)
+          if (e instanceof ApiError && e.status === 429) {
+            clearTimeout(timeout);
+            emit();
+            break;
+          }
         }
       } finally {
         clearTimeout(timeout);

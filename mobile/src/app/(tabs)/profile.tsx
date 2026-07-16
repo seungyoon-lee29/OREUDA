@@ -58,7 +58,7 @@ export default function Profile() {
               <Text style={[s.badgeLabel, allClear && s.badgeLabelOn]}>{b.name}</Text>
               {allClear ? (
                 <View style={s.badgeChip}>
-                  <Text style={s.badgeChipText}>정복</Text>
+                  <Text style={s.badgeChipText}>완등</Text>
                 </View>
               ) : (
                 <Text style={s.badgeProgress}>{done}/{b.need}</Text>

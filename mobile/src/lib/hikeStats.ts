@@ -13,6 +13,10 @@ export type HikeSummary = {
 // ponytail: 체중 입력 UI가 프로필에 생기면 prefs로 승격. 없으면 표준 성인 근사값으로 추정.
 export const ASSUMED_WEIGHT_KG = 65;
 
+// 스테일 세션 가드 — 종료를 잊은 세션이 이틀 뒤 인증되면 '49시간·2만kcal' 허수가 나온다(가짜 숫자 금지).
+// 당일치기 최장 산행도 16h면 충분, 초과는 세션이 스테일하다고 보고 요약 스킵.
+export const MAX_HIKE_MS = 16 * 3_600_000;
+
 // MET 추정 — 2011 Compendium 보행값 근사 + 경사 가산. 산이라 경사 미상이면 완만한 오르막 가정.
 export function hikingMet(speedKmh: number | null, gradientPct: number | null): number {
   const s = speedKmh ?? 4; // 속도 미상 → 완만한 등산 속도 가정
@@ -32,6 +36,7 @@ export function computeHikeSummary(input: {
 }): HikeSummary | null {
   const durationMs = input.endedAtMs - Date.parse(input.startedAt);
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null; // 실경과시간 없으면 요약 없음
+  if (durationMs > MAX_HIKE_MS) return null; // 스테일 세션 — 허수 요약 방지
   const durationMin = Math.round(durationMs / 60_000);
   const hours = durationMs / 3_600_000;
 

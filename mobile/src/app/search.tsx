@@ -34,7 +34,7 @@ export default function Search() {
   const router = useRouter();
   const [q, setQ] = useState('');
 
-  const { data: mountains = [] } = useQuery({
+  const { data: mountains = [], isError, refetch } = useQuery({
     queryKey: ['mountains'],
     queryFn: async () => MountainsListSchema.parse(await api('/mountains')),
     staleTime: Infinity,
@@ -105,7 +105,16 @@ export default function Search() {
             )}
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={s.empty}>검색 결과가 없어요</Text>}
+        ListEmptyComponent={
+          // L5: 조회 실패를 '검색 결과 없음'으로 오도하지 않기 — 에러+재시도 (records 패턴)
+          isError ? (
+            <TouchableOpacity style={s.errorBox} onPress={() => refetch()} accessibilityRole="button">
+              <Text style={s.errorText}>산 목록을 불러오지 못했어요. 눌러서 다시 시도</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={s.empty}>검색 결과가 없어요</Text>
+          )
+        }
       />
     </SafeAreaView>
   );
@@ -160,4 +169,6 @@ const s = StyleSheet.create({
   },
   conqueredChipText: { fontSize: 11, fontWeight: '700', color: C.success },
   empty: { textAlign: 'center', color: C.faint, marginTop: 40 },
+  errorBox: { marginTop: 40, alignItems: 'center', padding: SP.lg },
+  errorText: { fontWeight: '500', color: C.dangerText, textAlign: 'center' },
 });

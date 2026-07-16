@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Logo } from '@/components/Logo';
 import { login } from '@/lib/api';
-import { purgeLocalData } from '@/lib/outbox';
+import { reconcileLocalDataForAccount } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
 import { C, R, CTA_H } from '@/lib/theme';
 
@@ -22,9 +22,9 @@ export default function Login() {
     setError('');
     try {
       await login(email.trim(), password);
-      // 이전 세션이 남긴 로컬 데이터 폐기 — 자동 logout(refresh 만료) 후 다른 계정 로그인 시
-      // stranded된 outbox가 이 계정으로 flush돼 오귀속되는 걸 차단(로그아웃 버튼을 안 거친 경로 방어).
-      purgeLocalData();
+      // 다른 계정이면 이전 세션 로컬 데이터 폐기(오귀속 차단), 같은 계정 재로그인(refresh 만료 경로)이면
+      // 미전송 draft 보존 + flush — stores.ts의 보존 의도와 정합.
+      reconcileLocalDataForAccount(email);
       setAuthed(true); // 게이트가 /로 보낸다
     } catch (e: any) {
       setError(e?.code === 'AUTH_INVALID_CREDENTIALS' ? '이메일 또는 비밀번호가 달라요' : '로그인에 실패했어요');

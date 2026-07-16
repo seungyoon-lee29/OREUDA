@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const ASSUMED_WEIGHT_KG = 65;
+const MAX_HIKE_MS = 16 * 3_600_000;
 
 const hikingMet = (speedKmh, gradientPct) => {
   const s = speedKmh ?? 4;
@@ -15,6 +16,7 @@ const hikingMet = (speedKmh, gradientPct) => {
 const computeHikeSummary = (input) => {
   const durationMs = input.endedAtMs - Date.parse(input.startedAt);
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
+  if (durationMs > MAX_HIKE_MS) return null;
   const durationMin = Math.round(durationMs / 60_000);
   const hours = durationMs / 3_600_000;
   const distanceM = input.distanceM;
@@ -44,6 +46,12 @@ const base = {
 test('경과시간 0 이하 → null (요약 없음)', () => {
   assert.equal(computeHikeSummary({ ...base, endedAtMs: Date.parse(base.startedAt) }), null);
   assert.equal(computeHikeSummary({ ...base, endedAtMs: Date.parse(base.startedAt) - 1000 }), null);
+});
+
+test('스테일 세션 경계: 정확히 16h는 요약, 16h+1ms는 null', () => {
+  const start = Date.parse(base.startedAt);
+  assert.notEqual(computeHikeSummary({ ...base, endedAtMs: start + 16 * 3_600_000 }), null);
+  assert.equal(computeHikeSummary({ ...base, endedAtMs: start + 16 * 3_600_000 + 1 }), null);
 });
 
 test('60분 3km → 속도 3.0km/h, 시간 60분', () => {

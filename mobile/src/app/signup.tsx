@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity,
 } from 'react-native';
 import { signup } from '@/lib/api';
-import { purgeLocalData } from '@/lib/outbox';
+import { reconcileLocalDataForAccount } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
 import { C, R, CTA_H } from '@/lib/theme';
 
@@ -22,7 +22,7 @@ export default function Signup() {
     setError('');
     try {
       await signup(email.trim(), password, nickname.trim() || '등산러');
-      purgeLocalData(); // 이전 세션 stranded outbox 오귀속 차단(login.tsx와 동일 이유)
+      reconcileLocalDataForAccount(email); // 다른 계정이면 purge, 같은 계정이면 draft 보존(login.tsx와 동일)
       setAuthed(true);
     } catch (e: any) {
       setError(e?.code === 'AUTH_EMAIL_TAKEN' ? '이미 가입된 이메일이에요' : '가입에 실패했어요');
