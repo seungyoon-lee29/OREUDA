@@ -2,6 +2,8 @@
 // hint: 정상 근방 좌표(±2km 허용), nameRe: OSM peak name 매칭, ele: OSM ele 태그 없을 때 폴백,
 // baseEle: 들머리 고도 근사(상승고도 = ele - baseEle, duration/difficulty 휴리스틱용),
 // radius: 등산로 way 수집 반경(m), minDist/maxDist: 코스 길이 후보 범위(m)
+// peakOverride { pt:[lng,lat], ele }: ws3 검증 교정 좌표·고도 — 존재하면 OSM peak 노드·ele 태그보다 우선
+// (OSM 이름-매칭 단독 선택 사고 재발 방지: 우면산/개화산 중복 노드, 일자산 저봉 — ws3 소스 오류 메모)
 
 export const OVERPASS = 'https://overpass-api.de/api/interpreter';
 export const OVERPASS_MIRROR = 'https://overpass.kumi.systems/api/interpreter';
@@ -23,11 +25,17 @@ export const MOUNTAINS = [
   { slug: 'namsan',   name: '남산',   region: '서울 중구·용산', nameRe: '^남산$', hint: [126.988, 37.551], ele: 262, baseEle: 60, ...small },
   { slug: 'daemo',    name: '대모산', region: '서울 강남', nameRe: '^대모산$', hint: [127.080, 37.474], ele: 293, baseEle: 60, ...mid },
   { slug: 'guryong',  name: '구룡산', region: '서울 서초·강남', nameRe: '^구룡산$', hint: [127.060, 37.470], ele: 306, baseEle: 60, ...mid },
-  { slug: 'umyeon',   name: '우면산', region: '서울 서초', nameRe: '^우면산$', hint: [127.010, 37.466], ele: 293, baseEle: 50, ...mid },
-  { slug: 'gaehwa',   name: '개화산', region: '서울 강서', nameRe: '^개화산$', hint: [126.803, 37.578], ele: 128, baseEle: 30, ...small },
+  // 우면산 실정상은 공군부대 내 접근 불가 — 인증점=소망탑(실질 정상, 청계산 통제구역 선례)
+  { slug: 'umyeon',   name: '우면산', region: '서울 서초', nameRe: '^우면산$', hint: [127.010, 37.466], ele: 293, baseEle: 50, ...mid,
+    peakOverride: { pt: [127.01300, 37.47319], ele: 293 } },
+  // 개화산 정상=봉수대·헬기장 (OSM 128.4 노드 + 강서구 공식)
+  { slug: 'gaehwa',   name: '개화산', region: '서울 강서', nameRe: '^개화산$', hint: [126.803, 37.578], ele: 128, baseEle: 30, ...small,
+    peakOverride: { pt: [126.80617, 37.58167], ele: 128 } },
   { slug: 'bongsan',  name: '봉산',   region: '서울 은평', nameRe: '^봉산$', hint: [126.898, 37.606], ele: 209, baseEle: 40, ...mid },
   { slug: 'baengnyeon', name: '백련산', region: '서울 은평·서대문', nameRe: '^백련산$', hint: [126.928, 37.596], ele: 216, baseEle: 50, ...small },
   { slug: 'hoam',     name: '호암산', region: '서울 금천·관악', nameRe: '^호암산$', hint: [126.930, 37.437], ele: 393, baseEle: 60, ...big },
-  { slug: 'ilja',     name: '일자산', region: '서울 강동·경기 하남', nameRe: '^일자산$', hint: [127.155, 37.545], ele: 134, baseEle: 40, ...small },
+  // 일자산 정상=해맞이광장 (사용자 지도 확인 2026-07-17, WS3 DEM 크레스트와 14m 정합)
+  { slug: 'ilja',     name: '일자산', region: '서울 강동·경기 하남', nameRe: '^일자산$', hint: [127.155, 37.545], ele: 134, baseEle: 40, ...small,
+    peakOverride: { pt: [127.1537, 37.5290], ele: 134 } },
   { slug: 'maebong',  name: '매봉산', region: '서울 성동', nameRe: '^매봉산$', hint: [127.021, 37.545], ele: 174, baseEle: 30, radius: 1200, minDist: 400, maxDist: 3000 },
 ];

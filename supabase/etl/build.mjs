@@ -64,8 +64,9 @@ function dijkstra(adj, start) {
 const usedSourceIds = new Set(); // 전역 — 인접 산(아차/용마, 대모/구룡)이 들머리 way를 공유한다
 
 function buildCourses(m, data) {
-  if (!data.peak || !data.ways.length) return { courses: [], reason: 'OSM 데이터 없음' };
-  const peakPt = [data.peak.lon, data.peak.lat];
+  // peakOverride가 있으면 OSM peak 노드 매칭 실패에도 build 가능(적대 리뷰 MEDIUM — fresh seed 누락 방지)
+  if ((!data.peak && !m.peakOverride) || !data.ways.length) return { courses: [], reason: 'OSM 데이터 없음' };
+  const peakPt = m.peakOverride?.pt ?? [data.peak.lon, data.peak.lat]; // ws3 검증 좌표 우선
   const coords = new Map(); // nodeId -> [lng,lat]
   const adj = new Map();
   const deg = new Map();
@@ -93,7 +94,8 @@ function buildCourses(m, data) {
   if (startNode === null || best > 400) return { courses: [], reason: `정상 근처 등산로 없음(최근접 ${Math.round(best)}m)` };
   // 정상이 등산로와 100m 넘게 단절(통제구역 등)이면 seed.sql 청계산 선례대로 대표점=최근접 등산로 지점.
   // verify_radius_m 150 안에서 실제 도달 가능해야 인증이 성립한다.
-  const snapped = best > 100;
+  // 단 peakOverride는 이미 검증된 실질 인증점(소망탑 등) — 스냅 없이 그대로 쓴다.
+  const snapped = !m.peakOverride && best > 100;
   const summitPt = snapped ? coords.get(startNode) : peakPt;
 
   const { dist, prev } = dijkstra(adj, startNode);
@@ -145,13 +147,14 @@ function buildCourses(m, data) {
     chosen.push({ end, d: len, brg, pts, sourceId }); // d = 트림 후 잔여 길이(간선 haversine 합) / brg·name은 트림 전 원 endpoint 기준
   }
 
-  const osmEle = parseFloat(data.peak.tags.ele);
+  const osmEle = parseFloat(data.peak?.tags.ele);
   let ele = Math.round(osmEle || m.ele);
   if (osmEle && Math.abs(osmEle - m.ele) > 30) {
     // OSM peak ele 오염 대응(일자산 74 vs 실제 134) — 괴리 30m 초과면 config 우선
     console.warn(`⚠ ${m.name}: OSM ele ${osmEle}m vs config ${m.ele}m 괴리 >30m — config 사용`);
     ele = m.ele;
   }
+  if (m.peakOverride) ele = m.peakOverride.ele; // ws3 검증 고도 — OSM ele 태그보다 우선(우면산 313 오태깅)
   const ascent = Math.max(ele - m.baseEle, 30);
   const dirCount = {};
   const courses = chosen.map((c) => {
@@ -167,10 +170,14 @@ function buildCourses(m, data) {
     const name = `${dir}측 코스${dirCount[dir] > 1 ? ` ${dirCount[dir]}` : ''}`;
     return {
       name, pts: c.pts, distM, durMin, difficulty, sourceId: c.sourceId,
-      raw: `OSM 경로합산 ${distM}m, 상승근사 ${ascent}m(정상 ${ele}m - 들머리근사 ${m.baseEle}m), 휴리스틱 판정${snapped ? `, 대표점=최근접 등산로 지점(정상 단절 ${Math.round(best)}m)` : ''}`,
+      raw: `OSM 경로합산 ${distM}m, 상승근사 ${ascent}m(정상 ${ele}m - 들머리근사 ${m.baseEle}m), 휴리스틱 판정${snapped ? `, 대표점=최근접 등산로 지점(정상 단절 ${Math.round(best)}m)` : ''}${m.peakOverride ? ', 정상점=ws3 교정 좌표' : ''}`,
     };
   });
-  return { courses, peak: { pt: [+summitPt[0].toFixed(5), +summitPt[1].toFixed(5)], ele, osmName: data.peak.tags.name, snapped } };
+  if (m.peakOverride)
+    // 풀 재생성은 identity-unsafe: 들머리 셀렉션이 드리프트해 source_id가 바뀔 수 있다(우면산 3→2 실측).
+    // 프로덕션 반영은 rebuild_summits.mjs/rebuild_v0.mjs(identity 보존 재라우팅)로만 — 적대 리뷰 HIGH.
+    console.warn(`⚠ ${m.name}: peakOverride 산 — 이 재생성 산출물을 프로덕션에 그대로 upsert하지 말 것(코스 드리프트 위험)`);
+  return { courses, peak: { pt: [+summitPt[0].toFixed(5), +summitPt[1].toFixed(5)], ele, osmName: data.peak?.tags.name, snapped } };
 }
 
 const results = [];
@@ -235,3 +242,9 @@ for (const r of results) {
   console.log(`${r.m.name}: ${s}`);
 }
 console.log(`\n산 ${ok.length}개 / 코스 ${ok.reduce((n, r) => n + r.courses.length, 0)}개 → supabase/seed_seoul.sql`);
+// 풀 재생성은 identity-unsafe: 코스 셀렉션(들머리 선택·firstWay=source_id)이 드리프트한다 —
+// 실측: 우면산 3→2코스, 개화산 source_id 변경(적대 리뷰 HIGH). 이 산출물을 프로덕션에 그대로
+// upsert하면 구 코스가 고아로 남고 중복이 생긴다. 기존 코스 갱신은 rebuild_summits.mjs/rebuild_v0.mjs
+// 방식(id·이름·source_id 보존 재라우팅)만 사용할 것.
+if (MOUNTAINS.some((m) => m.peakOverride))
+  console.warn('\n⚠️  peakOverride 산 포함 — 이 seed는 fresh DB 시딩 전용. 프로덕션 upsert 금지(위 주석 참조).');

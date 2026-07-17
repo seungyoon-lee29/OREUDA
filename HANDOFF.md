@@ -1,3 +1,17 @@
+# 핸드오프 — 2026-07-17 새벽 (3차: 완등 컬렉션 + summit 교정 — 프로덕션 반영 완료)
+
+## 방금 한 것
+- **완등 컬렉션(feat, 3f8e2e2)**: mountainSets.ts SSOT — 큐레이션 5세트(19산 전 커버)·산 완등=전 코스(verified 수==courseCount 동치 파생, 백엔드 무변경)·profile '완등 세트' 섹션(N/19+세트 카드)·완등 성공 화면 축하 칩(setState 직전 동기 계산 — flush 레이스 차단). code-reviewer 1패스 반영(파라미터 배열 정규화·순서 계약 주석·세트 카드 스크린리더 라벨; meClimbs 레이스 HIGH는 react-query 캐시 유지 특성으로 오진 판정 — 콜드 캐시 엣지만 주석 수용). tsc 0·31/31·시뮬 렌더 확인.
+- **티켓 04 summit 교정(resolved)**: rebuild_summits.mjs(rebuild_v0 패턴) — 우면산→소망탑(512m 이동, 공군부대 선례)·일자산→해맞이광장(사용자 지도 확인 127.1537,37.5290)·개화산→봉수대. 7코스 기존 들머리 고정 재라우팅, id·이름·source_id 불변, checkpoint=신규 summit 0.0m ×7. codex 적대: HIGH(풀 재생성 identity-unsafe — build.mjs 경고 가드 추가)·MEDIUM(행수 미검증 — 적용을 트랜잭션+문장별 rowCount=1 단언으로) 반영, 잔여(재실행 스냅 가드·connector 63m informational·peakOverride fresh-fetch) 백로그.
+- **프로덕션**: summit_corrections.sql 10/10 적용(각 rowCount=1) → 사후 검증 3산 7코스 0.0m·고도 293/128/134·총 코스 50 → **프로덕션 스모크 18/18** → 스모크 데이터 정리.
+- **주의(재발 방지)**: seed_seoul.sql 풀 재생성 산출물은 프로덕션 upsert 금지(코스 셀렉션 드리프트 — build.mjs 실행 시 경고 출력). 기존 코스 갱신은 rebuild_summits/rebuild_v0 방식만.
+
+## 다음 할 것
+1. **실기기 런타임 검증**(티켓 01) — 남은 유일 실질 항목(우면산 소망탑 인증 확인 포함하면 좋음).
+2. STITCH 키 로테이션(사용자 직접) — 변동 없음.
+
+---
+
 # 핸드오프 — 2026-07-17 (지오 정합성 배치: 인증 관대성·경로 트림·감사 픽스 — 미커밋)
 
 ## 방금 한 것 (전부 워킹트리, 커밋 보류 — 사용자 결정 대기)

@@ -1,10 +1,10 @@
 # 04 - summit 좌표·고도 교정 (우면산·일자산·개화산·남산)
 
 Type: fix(data)
-Status: open
+Status: **resolved (2026-07-17)** — rebuild_summits.mjs로 3산 7코스 재라우팅(identity 보존), 프로덕션 적용(트랜잭션·문장별 rowCount=1 단언) + 사후 검증 checkpoint↔summit 0.0m ×7 + 스모크 18/18. codex 적대 잔여(MEDIUM 재실행 가드·LOW connector 63m)는 백로그 — ws5 리포트 참조.
 Triage: ready-for-agent
 Depends on: 02(트림)와 같은 ETL·시드 파일 — 02 반영 후 착수
-Blocked by: 일자산 해맞이광장 좌표 수동 확인(±50m 불확실 — 카카오/네이버 지도, 사용자 또는 지도 조회 가능한 에이전트)
+Blocked by: ~~일자산 좌표 수동 확인~~ **해소(2026-07-17)** — 사용자 지도 확인 (127.1537, 37.5290), WS3 추정과 14m·현 시드와 158m(RED 정합). 이 좌표 채택.
 Owner: unclaimed
 Claimed at: -
 Last heartbeat: -
