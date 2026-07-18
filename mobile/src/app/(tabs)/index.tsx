@@ -29,7 +29,8 @@ import {
 import { hasAllClear, tierFor } from '@/lib/tiers';
 import { C, MONO, R, SP } from '@/lib/theme';
 
-// 산 마커는 항상 표시(줌 무관). 코스선은 "산을 탭해야" 그 산 것만 보인다 — 저줌/고줌 어디서든 선택 가능.
+// 산 마커는 항상 표시(줌 무관). 완등·대기 코스선은 상시 색칠(누적 채색 지도), 미완등은 "산을 탭해야" 보인다.
+// 선택·등반 중에는 기존 강조 규칙 유지 — 타 코스(상시 색칠 포함)는 dimmed로 포커스를 양보한다.
 // 얇은 코스선(w3~6)은 손가락으로 맞히기 어렵다. 투명 넓은 폴리라인을 위에 겹쳐 탭 타겟만 넓힌다.
 const HIT_WIDTH = 44; // 44dp = iOS 최소 터치 타겟
 const HIT_COLOR = '#00000001'; // 사실상 투명(alpha 0은 렌더 스킵될 수 있어 1/255)
@@ -282,13 +283,18 @@ export default function MapScreen() {
   const selectedCourse = mountain?.courses.find((c) => c.id === selectedCourseId) ?? null;
   const selectedIsActive = !!selectedCourse && activeHike?.courseId === selectedCourse.id;
 
-  // 코스선 노출 집합: 선택된 산의 코스 + 진행 중 등반 코스(다른 산이라도 유지) — "산을 탭해야 코스가 보인다"
+  // 코스선 노출 집합: 완등·대기 코스는 항상(누적 채색 = 핵심 가치) + 선택된 산의 코스 + 진행 중 등반 코스.
+  // 미완등 코스만 "산을 탭해야 보인다"를 유지.
   const visibleCourses = useMemo(
     () =>
       (courses ?? []).filter(
-        (c) => c.mountainId === selectedMountainId || c.id === activeHike?.courseId,
+        (c) =>
+          c.mountainId === selectedMountainId ||
+          c.id === activeHike?.courseId ||
+          verified.has(c.id) ||
+          pending.has(c.id),
       ),
-    [courses, selectedMountainId, activeHike],
+    [courses, selectedMountainId, activeHike, verified, pending],
   );
   // 강조: 진행 중 등반 코스는 active(네비 경로), 나머지는 dimmed. 등반 없으면 기존 선택 로직.
   const emphasisFor = (c: Course): Emphasis => {
@@ -352,6 +358,7 @@ export default function MapScreen() {
         {/* 코스별 예상 소요시간·거리 라벨 — 코스선 중앙에. 겹치면 자동 숨김(isHideCollidedCaptions).
             dimmed(비선택/진행 외) 코스는 라벨 숨김. 라인 탭 가로채기 대비 onTap도 selectCourse. */}
         {visibleCourses.map((c) => {
+          if (c.mountainId !== selectedMountainId) return null; // 상시 색칠(완등) 코스는 라벨 없이 선만 — 전역 라벨 노이즈 방지
           if (emphasisFor(c) === 'dimmed') return null;
           if (activeHike?.courseId === c.id) return null; // 등반 중 코스는 정적 소요시간 라벨 숨김 — 배너가 실시간 담당
           const label = durationLabel(c);

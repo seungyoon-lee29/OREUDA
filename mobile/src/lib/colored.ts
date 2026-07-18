@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import { MeClimbsSchema, MountainsListSchema } from './schemas';
@@ -41,11 +41,14 @@ export function useMountains() {
 
 export function useVerifiedSet(): Set<string> {
   const { data } = useMeClimbs();
-  const set = new Set<string>();
-  for (const c of data?.climbs ?? []) {
-    if (c.status === 'verified' && c.courseId) set.add(c.courseId);
-  }
-  return set;
+  // 참조 안정화 — 지도 폴리라인 useMemo 의존성으로 쓰여서, 매 렌더 새 Set이면 오버레이 전체가 재커밋된다.
+  return useMemo(() => {
+    const set = new Set<string>();
+    for (const c of data?.climbs ?? []) {
+      if (c.status === 'verified' && c.courseId) set.add(c.courseId);
+    }
+    return set;
+  }, [data]);
 }
 
 // 05 §3.1 Okabe-Ito 유지 — 다크 배경 AA를 위해 밝기만 리프트(hue 동일: 164°/203°/26°)
