@@ -1,10 +1,8 @@
-import { Link, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { logout } from '@/lib/api';
 import { PeakMark } from '@/components/PeakMark';
-import { useVerifiedSet } from '@/lib/colored';
-import { isGuest, setGuest } from '@/lib/prefs';
+import { useMeClimbs, useMountains, useVerifiedSet } from '@/lib/colored';
+import { conqueredMountains, SETS, setProgress, verifiedByMountain } from '@/lib/mountainSets';
 import { useSession } from '@/lib/stores';
 import {
   ALL_CLEAR_BADGE, hasAllClear, nextTier, tierFor, SUMMIT_GOAL,
@@ -13,21 +11,18 @@ import { C, MONO, R, SP } from '@/lib/theme';
 
 // 프로필 — 등급/완등 현황/배지. 정체성 헤드라인은 닉네임이 아니라 '등급 이름'(백엔드 /me 호출 없음).
 export default function Profile() {
-  const router = useRouter();
-  const setAuthed = useSession((s) => s.setAuthed);
+  const signOut = useSession((s) => s.signOut); // 게이트가 /login으로 + 로컬 데이터 purge
   const done = useVerifiedSet().size; // 완등 코스 수 SSOT
-  const guest = isGuest();
 
   const tier = tierFor(done);
   const next = nextTier(done);
   const allClear = hasAllClear(done);
   const badges = [ALL_CLEAR_BADGE]; // ponytail: 배지 1개 — 배열로 감싸 미래 확장 대비
 
-  const signOut = async () => {
-    await logout();
-    setGuest(false);
-    setAuthed(false); // 게이트가 /login으로
-  };
+  // 완등 세트(정복 세트) — 산 완등(전 코스) 클라 파생: /mountains courseCount × me/climbs 귀속
+  const { data: meClimbs } = useMeClimbs();
+  const { data: mountains = [] } = useMountains();
+  const conquered = conqueredMountains(mountains, verifiedByMountain(meClimbs?.climbs ?? []));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
@@ -40,7 +35,7 @@ export default function Profile() {
           </View>
           <Text style={s.tierName}>{tier.name}</Text>
           <View style={s.accountChip}>
-            <Text style={s.accountChipText}>{guest ? '게스트' : '계정'}</Text>
+            <Text style={s.accountChipText}>계정</Text>
           </View>
         </View>
 
@@ -69,7 +64,7 @@ export default function Profile() {
               <Text style={[s.badgeLabel, allClear && s.badgeLabelOn]}>{b.name}</Text>
               {allClear ? (
                 <View style={s.badgeChip}>
-                  <Text style={s.badgeChipText}>정복</Text>
+                  <Text style={s.badgeChipText}>완등</Text>
                 </View>
               ) : (
                 <Text style={s.badgeProgress}>{done}/{b.need}</Text>
@@ -78,26 +73,47 @@ export default function Profile() {
           ))}
         </View>
 
-        {/* ── 게스트 넛지 */}
-        {guest && (
-          <View style={s.nudge}>
-            <Text style={s.nudgeText}>게스트로 이용 중 — 계정을 만들면 기록이 안전해요</Text>
-            {/* ponytail: v0엔 계정 전환 플로우 없음 — 가입 화면으로 넛지만 */}
-            <Link href="/signup" style={s.nudgeLink}>계정 만들기</Link>
-          </View>
-        )}
+        {/* ── 완등 세트 — 세트별 진행 카드 + 글로벌 N/전체 산. 카탈로그 미로드(오프라인 콜드)면 글로벌만 숨김 */}
+        <View style={s.setHeader}>
+          <Text style={s.sectionTitle}>완등 세트</Text>
+          {mountains.length > 0 && (
+            <Text style={s.setGlobal}>
+              {conquered.size}/{mountains.length}산 완등
+            </Text>
+          )}
+        </View>
+        {SETS.map((set) => {
+          const p = setProgress(set, conquered);
+          const complete = p.done === p.total;
+          return (
+            <View
+              key={set.name}
+              style={[s.setCard, complete && s.setCardOn]}
+              accessible
+              accessibilityLabel={`${set.name} ${p.done}/${p.total}${complete ? ' 완성' : ''}`}
+            >
+              <Text style={s.setName}>{set.name}</Text>
+              <Text style={s.setCount}>
+                {p.done}/{p.total}
+              </Text>
+              {complete && (
+                <View style={s.badgeChip}>
+                  <Text style={s.badgeChipText}>완성</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
 
-        {/* ── 로그아웃 — 게스트는 숨김(랜덤 계정이라 로그아웃 시 재로그인 불가 → 넛지 '계정 만들기'만 노출) */}
-        {!guest && (
-          <TouchableOpacity
-            style={s.logoutBtn}
-            onPress={signOut}
-            accessibilityRole="button"
-            accessibilityLabel="로그아웃"
-          >
-            <Text style={s.logoutText}>로그아웃</Text>
-          </TouchableOpacity>
-        )}
+        {/* ── 로그아웃 */}
+        <TouchableOpacity
+          style={s.logoutBtn}
+          onPress={signOut}
+          accessibilityRole="button"
+          accessibilityLabel="로그아웃"
+        >
+          <Text style={s.logoutText}>로그아웃</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -177,17 +193,22 @@ const s = StyleSheet.create({
   },
   badgeChipText: { fontSize: 11, fontWeight: '700', color: C.success },
 
-  // 게스트 넛지
-  nudge: {
+  // 완등 세트 — 배지 카드와 같은 플랫 카드 문법의 가로 행. 완성 시 success 보더 + '완성' 칩(badgeChip 재사용)
+  setHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: SP.sm },
+  setGlobal: { fontSize: 13, color: C.faint, fontFamily: MONO, fontVariant: ['tabular-nums'] },
+  setCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: SP.lg,
-    backgroundColor: C.surfaceDeep,
+    backgroundColor: C.surface,
     borderRadius: R.card,
     borderWidth: 1,
     borderColor: C.border,
     gap: SP.sm,
   },
-  nudgeText: { fontSize: 13, color: C.body, lineHeight: 20 },
-  nudgeLink: { fontSize: 14, fontWeight: '600', color: C.success },
+  setCardOn: { borderColor: C.success },
+  setName: { flex: 1, fontSize: 15, fontWeight: '600', color: C.ink },
+  setCount: { fontSize: 14, color: C.faint, fontFamily: MONO, fontVariant: ['tabular-nums'] },
 
   // 로그아웃 — ghost/danger 텍스트
   logoutBtn: { alignItems: 'center', paddingVertical: SP.lg, marginTop: SP.sm },

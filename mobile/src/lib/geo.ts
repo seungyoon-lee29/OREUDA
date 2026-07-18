@@ -24,7 +24,8 @@ export function lngLatToTile(z: number, lng: number, lat: number) {
 // 타일 → bbox(minLng,minLat,maxLng,maxLat). 주변 1타일 마진 포함해 팬 경계 재요청 감소.
 export function tileToBboxWithMargin(z: number, x: number, y: number): [number, number, number, number] {
   const n = 2 ** z;
-  const tile2lng = (tx: number) => (tx / n) * 360 - 180;
+  // clamp: 타일 경계(x=0/n−1)의 ±1 마진이 ±180 밖으로 나가 서버 bbox 400을 맞지 않게
+  const tile2lng = (tx: number) => Math.max(-180, Math.min(180, (tx / n) * 360 - 180));
   const tile2lat = (ty: number) => {
     const t = Math.PI - (2 * Math.PI * ty) / n;
     return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t)));

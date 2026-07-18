@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   NaverMapView,
@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
-import { cacheCourses, clearHike, getCachedCourses, startHike } from '@/lib/outbox';
+import { cacheCourses, clearHike, getCachedCourses, setHikeStartAltitude, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
   DIFFICULTY_LABEL,
@@ -60,7 +60,7 @@ export default function MapScreen() {
   const bbox = useMemo(() => tileToBboxWithMargin(FETCH_TILE_Z, tile.x, tile.y), [tile]);
 
   // 타일 양자화 쿼리 키 + staleTime Infinity — 코스는 거의 불변 (04 §7)
-  const { data: courses } = useQuery({
+  const { data: courses, isError: coursesError, refetch: refetchCourses } = useQuery({
     queryKey: ['courses-tile', FETCH_TILE_Z, tile.x, tile.y],
     queryFn: async () =>
       CoursesSchema.parse(
@@ -118,11 +118,7 @@ export default function MapScreen() {
   const [myPos, setMyPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
   useEffect(() => {
-    if (!activeHike || !activeCheckpoint) {
-      setDistM(null);
-      setMyPos(null);
-      return;
-    }
+    if (!activeHike || !activeCheckpoint) return; // distM/myPos 정리는 아래 cleanup이 담당(중복 제거)
     let sub: Location.LocationSubscription | null = null;
     let cancelled = false;
     (async () => {
@@ -133,6 +129,8 @@ export default function MapScreen() {
         (loc) => {
           setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? -1 });
           setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
+          // 첫 fix 고도를 시작 고도로 기록 → 완등 시 정상 고도와의 델타로 평균 경사도 산출(setter가 1회만 반영).
+          if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
         },
       );
       // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
@@ -238,10 +236,12 @@ export default function MapScreen() {
         const minLat = Math.min(...lats);
         const maxLat = Math.max(...lats);
         const latSpan = maxLat - minLat;
-        // ponytail: 시트 45% 덮음 → ne.lat에 span*0.6 가산해 코스를 화면 상반부에 위치
+        // animateCameraWithTwoCoords는 두 좌표 중심을 화면 중앙(pivot 0.5)에 둔다.
+        // 하단 바텀시트가 45%를 덮으므로 남쪽(하단)에 여백을 크게 줘 코스를 시트 위 상단으로 올린다.
+        // (버그였음: 북쪽 maxLat에 가산하면 중심이 북으로 밀려 코스가 오히려 시트 밑으로 내려가 가려짐)
         mapRef.current.animateCameraWithTwoCoords({
-          coord1: { latitude: minLat, longitude: Math.min(...lngs) },
-          coord2: { latitude: maxLat + latSpan * 0.6, longitude: Math.max(...lngs) },
+          coord1: { latitude: minLat - latSpan * 1.0, longitude: Math.min(...lngs) },
+          coord2: { latitude: maxLat + latSpan * 0.1, longitude: Math.max(...lngs) },
         });
       }
     },
@@ -257,6 +257,8 @@ export default function MapScreen() {
   useEffect(() => {
     if (!focusMountainId) return;
     pendingCourseRef.current = focusCourseId ?? null;
+    // 네비 param 소비 = 시트 오픈(외부 이벤트 반응) + 아래 param 클리어 부수효과 → 이펙트가 정당. 룰 오탐.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     openMountain(focusMountainId);
     // 소비 즉시 param 클리어 — 같은 산을 다시 탭해도 param이 재세팅돼 effect 재발화(잔류 가드 시 무동작 방지)
     router.setParams({ focusMountainId: undefined, focusCourseId: undefined });
@@ -270,12 +272,11 @@ export default function MapScreen() {
     pendingCourseRef.current = null; // 미발견 포함 항상 클리어
   }, [mountain, selectCourse]);
 
-  // 타일 이탈로 선택 코스가 courses에서 사라지면 선택 해제
-  useEffect(() => {
-    if (selectedCourseId && courses && !courses.some((c) => c.id === selectedCourseId)) {
-      setSelectedCourseId(null);
-    }
-  }, [courses, selectedCourseId]);
+  // 타일 이탈로 선택 코스가 courses에서 사라지면 선택 해제 —
+  // react.dev "prop 변화 시 state 조정": 이펙트 대신 렌더 중 조정(즉시 수렴, 페인트 전).
+  if (selectedCourseId && courses && !courses.some((c) => c.id === selectedCourseId)) {
+    setSelectedCourseId(null);
+  }
 
   // 현재 시트에 열려 있는 산의 선택된 코스 — CTA 라벨 계산용
   const selectedCourse = mountain?.courses.find((c) => c.id === selectedCourseId) ?? null;
@@ -412,8 +413,6 @@ export default function MapScreen() {
                 height={28}
                 image={{ symbol: mk.symbol }}
                 caption={mk.caption}
-                // ponytail: react-hooks/refs 오탐 — openMountain의 sheetRef 접근은 탭 핸들러에서만 실행(렌더 아님).
-                // eslint-disable-next-line react-hooks/refs
                 onTap={() => openMountain(m.mountainId)}
               />
             );
@@ -442,7 +441,7 @@ export default function MapScreen() {
             >
               <Text style={s.hikeCertifyText}>완등 인증</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.hikeEnd} onPress={() => clearHike()} hitSlop={10}>
+            <TouchableOpacity style={s.hikeEnd} onPress={() => clearHike()} hitSlop={10} accessibilityRole="button" accessibilityLabel="등반 종료">
               <Text style={s.hikeEndText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -460,6 +459,21 @@ export default function MapScreen() {
         </View>
       )}
 
+      {/* L5: 타일 코스 조회 실패 — 빈 지도를 '산이 없다'로 오독하지 않게 에러+재시도 pill(records 패턴) */}
+      {coursesError && (
+        <View style={[s.searchPillWrap, { top: insets.top + 64 }]} pointerEvents="box-none">
+          <TouchableOpacity
+            style={s.errorPill}
+            activeOpacity={0.85}
+            onPress={() => refetchCourses()}
+            accessibilityRole="button"
+            accessibilityLabel="코스 다시 불러오기"
+          >
+            <Text style={s.errorPillText}>코스를 불러오지 못했어요 · 다시 시도</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {showRec && recommended && (
         <View style={[s.recWrap, { bottom: insets.bottom + TABBAR_CLEARANCE }]} pointerEvents="box-none">
           <View style={s.recCard}>
@@ -472,7 +486,7 @@ export default function MapScreen() {
               <Text style={s.recTitle} numberOfLines={1}>{recommended.name}</Text>
               <Text style={s.recCta}>코스 보기 →</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.recClose} onPress={() => setRecDismissed(true)} hitSlop={10}>
+            <TouchableOpacity style={s.recClose} onPress={() => setRecDismissed(true)} hitSlop={10} accessibilityRole="button" accessibilityLabel="추천 닫기">
               <Text style={s.recCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -487,6 +501,8 @@ export default function MapScreen() {
           style={[s.locFab, { bottom: insets.bottom + TABBAR_CLEARANCE }]}
           activeOpacity={0.85}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="내 위치로 이동"
           onPress={() =>
             // 줌인만(≥14) — 더 당겨봤으면 그 줌 유지, 멀리 봤으면 14로. 줌아웃으로 홱 당기지 않음(사용자 조작 존중).
             mapRef.current?.animateCameraTo({
@@ -531,6 +547,9 @@ export default function MapScreen() {
                     key={c.id}
                     style={[s.courseRow, isSelected && s.courseRowSelected]}
                     activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`${c.name}, ${DIFFICULTY_LABEL[c.difficulty ?? 'moderate']}${isVerified ? ', 완등' : isPending ? ', 대기 중' : ''}`}
                     onPress={() => {
                       if (isSelected) {
                         setSelectedCourseId(null); // 재탭 = 선택 토글 해제
@@ -574,7 +593,9 @@ export default function MapScreen() {
                       pathname: '/capture',
                       params: { mountainId: mountain.id, courseId: selectedCourse.id },
                     });
-                  } else {
+                    return;
+                  }
+                  const begin = () => {
                     startHike({
                       courseId: selectedCourse.id,
                       mountainId: mountain.id,
@@ -583,8 +604,27 @@ export default function MapScreen() {
                     sheetRef.current?.close();
                     // 등반 시작 = 명시적 위치 액션 → 이 시점 권한 요청(콜드 아님). 허용되면 watch 재가동.
                     Location.requestForegroundPermissionsAsync()
-                      .then((p) => setLocGranted(p.granted))
+                      .then((p) => {
+                        setLocGranted(p.granted);
+                        // 시작(들머리) 고도 원샷 캡처 → 완등 시 정상 고도와의 델타로 평균 경사도.
+                        // 포그라운드 워치 첫 fix(백업)보다 신뢰 — 폰을 주머니에 넣어 앱이 백그라운드여도 여기서 잡힘.
+                        if (p.granted)
+                          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+                            .then((loc) => {
+                              if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
+                            })
+                            .catch(() => {});
+                      })
                       .catch(() => {});
+                  };
+                  // M3: startHike는 INSERT OR REPLACE(단일행) — 무확인이면 진행 중 세션(경과시간·시작고도) 소리 없이 소멸
+                  if (activeHike) {
+                    Alert.alert('진행 중인 등반이 있어요', '종료하고 새로 시작할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      { text: '새로 시작', style: 'destructive', onPress: begin },
+                    ]);
+                  } else {
+                    begin();
                   }
                 }}
               >
@@ -695,6 +735,16 @@ const s = StyleSheet.create({
     paddingVertical: SP.sm,
   },
   searchPillText: { color: C.faint, fontSize: 15 },
+  // L5 에러 pill — searchPill과 동형, 텍스트만 danger 톤
+  errorPill: {
+    backgroundColor: C.glass,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.pill,
+    paddingHorizontal: SP.lg,
+    paddingVertical: SP.sm,
+  },
+  errorPillText: { color: C.dangerText, fontSize: 14, fontWeight: '500' },
   // rank15: 빈 상태 추천 카드 — glass 80% granite + 1px 보더 + 그림자 제거(플랫 원칙)
   recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
   recCard: {

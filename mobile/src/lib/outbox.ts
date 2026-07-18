@@ -2,7 +2,8 @@ import * as SQLite from 'expo-sqlite';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import type { QueryClient } from '@tanstack/react-query';
-import { api, ApiError } from './api';
+import { api, ApiError, currentSessionGen } from './api';
+import { lastAccount, setLastAccount } from './prefs';
 import { ClimbResponseSchema, type ClimbPayload, type Course } from './schemas';
 
 // 04 §3 outbox + 산 상세 프리페치 캐시 (위저드의 오프라인 판정 소스)
@@ -28,9 +29,17 @@ db.execSync(`
     course_id TEXT NOT NULL,
     mountain_id TEXT NOT NULL,
     course_name TEXT NOT NULL,
-    started_at TEXT NOT NULL
+    started_at TEXT NOT NULL,
+    start_altitude REAL
   );
 `);
+// 기존 설치본에 start_altitude 컬럼 추가(운동 요약 경사도용). 이미 있으면 throw → 무시.
+// ponytail: SQLite는 IF NOT EXISTS 컬럼이 없어 try/catch가 표준 관용구.
+try {
+  db.execSync('ALTER TABLE active_hike ADD COLUMN start_altitude REAL');
+} catch {
+  /* 이미 존재 */
+}
 
 // ---- 프리페치 캐시 (04 §5 프리페치 계약) ----
 export function cacheCourses(mountainId: string, courses: Course[]) {
@@ -51,7 +60,13 @@ export function getCachedCourses(mountainId: string): Course[] | null {
 // ---- 활성 등반 세션 (등반 시작 → 진행 중 → 완등 인증 사이 상태) ----
 // 등반은 몇 시간이라 앱 재시작을 넘겨 지속해야 함 → SQLite 단일 행(id=1). 완등 인증 성공 시 clear.
 // ponytail: 백그라운드 추적 없음 — 이건 "시작했다"는 세션 플래그일 뿐, 위치는 인증 순간에만 1점 사용(설계 유지).
-export type ActiveHike = { courseId: string; mountainId: string; courseName: string; startedAt: string };
+export type ActiveHike = {
+  courseId: string;
+  mountainId: string;
+  courseName: string;
+  startedAt: string;
+  startAltitude: number | null; // 등반 시작 지점 GPS 고도(첫 fix). 경사도 계산용, 없으면 null.
+};
 
 const hikeListeners = new Set<() => void>();
 function emitHike() {
@@ -71,17 +86,51 @@ export function startHike(h: { courseId: string; mountainId: string; courseName:
 }
 
 export function getActiveHike(): ActiveHike | null {
-  const row = db.getFirstSync<{ course_id: string; mountain_id: string; course_name: string; started_at: string }>(
-    'SELECT course_id, mountain_id, course_name, started_at FROM active_hike WHERE id = 1',
+  const row = db.getFirstSync<{ course_id: string; mountain_id: string; course_name: string; started_at: string; start_altitude: number | null }>(
+    'SELECT course_id, mountain_id, course_name, started_at, start_altitude FROM active_hike WHERE id = 1',
   );
   return row
-    ? { courseId: row.course_id, mountainId: row.mountain_id, courseName: row.course_name, startedAt: row.started_at }
+    ? {
+        courseId: row.course_id,
+        mountainId: row.mountain_id,
+        courseName: row.course_name,
+        startedAt: row.started_at,
+        startAltitude: row.start_altitude,
+      }
     : null;
+}
+
+// 등반 첫 GPS fix의 고도를 시작 고도로 1회 기록(경사도 계산용). WHERE start_altitude IS NULL이라
+// 첫 값만 남고(=출발지≈들머리 고도) 이후 fix는 no-op. 워치 콜백에서 매 fix 호출해도 안전.
+export function setHikeStartAltitude(altitude: number) {
+  db.runSync('UPDATE active_hike SET start_altitude = ? WHERE id = 1 AND start_altitude IS NULL', [altitude]);
 }
 
 export function clearHike() {
   db.runSync('DELETE FROM active_hike WHERE id = 1');
   emitHike();
+}
+
+// 로그아웃 시 디바이스-로컬 완등 데이터 전부 폐기 — 다음 계정이 이전 사용자의
+// 큐/진행세션/캐시를 상속하지 못하게(오귀속 차단). outbox·active_hike엔 소유자가 없으므로.
+// ponytail: 계정 스위칭이 드문 v0라 전역 purge로 충분. 계정별 스코핑은 멀티유저 디바이스가 흔해지면 v1.
+export function purgeLocalData() {
+  db.runSync('DELETE FROM climb_drafts');
+  db.runSync('DELETE FROM active_hike WHERE id = 1');
+  emit();
+  emitHike();
+  queryClient?.clear();
+}
+
+// 로그인/가입 성공 시 단일 초크포인트 — 다른 계정이면 purge(오귀속 차단), 같은 계정 재로그인이면
+// draft 보존 + flush. stores.ts의 보존 의도(refresh 만료 → 같은 계정 재로그인 시 미전송 완등 유지) 실현.
+export function reconcileLocalDataForAccount(email: string) {
+  // exact 비교 — 서버가 email을 대소문자 구분 매칭하므로(auth.ts) lowercase 정규화하면
+  // 다른 서버 계정(Foo@ vs foo@)을 같은 계정으로 오판해 draft가 오귀속된다(리뷰 MEDIUM).
+  const account = email.trim();
+  if (lastAccount() !== account) purgeLocalData();
+  else flush(); // 보존된 draft를 새 세션 토큰으로 즉시 제출 시도
+  setLastAccount(account);
 }
 
 // ---- outbox ----
@@ -173,9 +222,13 @@ let queryClient: QueryClient | null = null;
 export async function flush() {
   if (inFlight) return;
   inFlight = true;
+  const gen = currentSessionGen(); // 이 flush가 속한 세션
   try {
     const drafts = listDrafts(['queued']);
     for (const d of drafts) {
+      // 로그아웃/계정전환이 flush 도중 일어나면 스냅샷의 남은 draft가 새 계정 토큰으로
+      // 나가 오귀속됨 → 중단. 이 draft들은 purge로 이미 삭제됐거나 다음 세션에서 재큐.
+      if (currentSessionGen() !== gen) break;
       db.runSync(
         "UPDATE climb_drafts SET state = 'uploading', attempt_count = attempt_count + 1, last_attempt_at = ? WHERE local_uuid = ?",
         [new Date().toISOString(), d.local_uuid],
@@ -196,18 +249,27 @@ export async function flush() {
         // ponytail: 서버 결과 로컬 보관 안 함(무한 누적 방지). 필요해지면 confirmed 상태 부활.
         db.runSync('DELETE FROM climb_drafts WHERE local_uuid = ?', [d.local_uuid]);
       } catch (e) {
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
-          // 4xx 종결 → failed_permanent (04 §4.2)
+        // 429·401은 4xx지만 일시적이라 종결하면 완등 유실:
+        //  - 429: 스로틀(IP 키 — CGNAT에선 남의 트래픽으로도 맞음). 시간 지나면 풀린다.
+        //  - 401: 세션 만료(refresh 실패). 같은 계정 재로그인 후 재전송돼야 한다.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429 && e.status !== 401) {
+          // 그 외 4xx 종결 → failed_permanent (04 §4.2)
           db.runSync(
             "UPDATE climb_drafts SET state = 'failed_permanent', last_error = ? WHERE local_uuid = ?",
             [`${e.code}: ${e.message}`, d.local_uuid],
           );
         } else {
-          // 5xx/네트워크/abort → queued 유지, 다음 트리거 대기
+          // 5xx/네트워크/abort/429/401 → queued 유지, 다음 트리거 대기
           db.runSync(
             "UPDATE climb_drafts SET state = 'queued', last_error = ? WHERE local_uuid = ?",
             [String(e), d.local_uuid],
           );
+          // 429는 이 flush 전체가 스로틀 상태 — 남은 draft도 전부 429일 테니 계속 치면 가중만(리뷰 LOW)
+          if (e instanceof ApiError && e.status === 429) {
+            clearTimeout(timeout);
+            emit();
+            break;
+          }
         }
       } finally {
         clearTimeout(timeout);

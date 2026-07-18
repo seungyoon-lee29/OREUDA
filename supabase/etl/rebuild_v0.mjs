@@ -90,7 +90,8 @@ const MOUNTAINS = [
   {
     name: '관악산', center: [126.9640, 37.4430], radius: 4300,
     courses: [
-      { sourceId: 'v0-gas-seouldae', target: [126.9640, 37.4430], trailhead: [126.9465, 37.4685] },
+      // 들머리를 관악산역(도심)에서 실제 등산로 입구(칠성당계곡 부근)로 올림 — 서울대 캠퍼스 도로 ~2km 접근로 제거, 산 루트만 남김.
+      { sourceId: 'v0-gas-seouldae', target: [126.9640, 37.4430], trailhead: [126.9497, 37.4508] },
       { sourceId: 'v0-gas-gwacheon', target: [126.9640, 37.4430], trailhead: [126.9856, 37.4363] },
       { sourceId: 'v0-gas-sadang', target: [126.9640, 37.4430], trailhead: [126.9825, 37.4745] },
     ],
@@ -140,11 +141,14 @@ for (const m of MOUNTAINS) {
     console.log(`\n[${m.name}] cached ways`);
   } catch {
     console.log(`\n[${m.name}] fetching ways around ${m.center} r=${m.radius}…`);
-    const q = `[out:json][timeout:180];(way["highway"~"^(path|footway|steps|track)$"](around:${m.radius},${m.center[1]},${m.center[0]}););out geom;`;
+    const q = `[out:json][timeout:180];(way["highway"~"^(path|steps|track)$"](around:${m.radius},${m.center[1]},${m.center[0]}););out geom;`;
     ways = (await overpass(q)).elements ?? [];
     await writeFile(cacheUrl, JSON.stringify(ways));
   }
-  console.log(`  ways=${ways.length}`);
+  // footway 제외: 도심 인도·캠퍼스 보도(예: 서울대 캠퍼스)가 등산로 그래프에 섞여 코스가 산길이 아닌
+  // 도보 접근로를 타고 오르던 문제 해결 — 산 루트(path/steps/track)만 남긴다. 캐시엔 tags가 있어 재요청 불필요.
+  ways = ways.filter((w) => w.tags?.highway !== 'footway');
+  console.log(`  ways=${ways.length} (footway 제외)`);
   const { coords, adj } = buildGraph(ways);
   console.log(`  nodes=${coords.size}`);
 

@@ -47,7 +47,7 @@ CREATE TABLE climb_drafts (
   attempt_count INTEGER DEFAULT 0,
   last_attempt_at TEXT,
   last_error   TEXT,
-  server_result_json TEXT,         -- flush 성공 시 응답 보관 (매핑 표의 소스)
+  server_result_json TEXT,         -- v0 미사용(2xx 시 draft 삭제) — confirmed 보관 부활 시 사용
   captured_at  TEXT NOT NULL
 );
 ```
@@ -66,17 +66,17 @@ stateDiagram-v2
     requesting_permission --> acquiring_fix : 허용
     acquiring_fix --> fix_failed : 타임아웃 15s
     fix_failed --> acquiring_fix : 재시도
-    acquiring_fix --> low_accuracy : accuracy > 100m
-    low_accuracy --> acquiring_fix : 수동 재시도
-    acquiring_fix --> out_of_range : 로컬 판정 실패 (거리 표시)
-    out_of_range --> acquiring_fix : 재시도
+    acquiring_fix --> confirm_marginal : 반경 밖 또는 accuracy > 100m
+    confirm_marginal --> acquiring_fix : 다시 시도
+    confirm_marginal --> captured : "그래도 인증" → nearest 코스 선부착 insert
     acquiring_fix --> captured : 로컬 판정 통과 → outbox insert
     captured --> [*] : 성공 연출 → 코스 선택 → 착지
 ```
 
 - **성공의 정의 = `captured`(로컬 캡처 완료) 시점.** 서버 검증이 아니다 — 오프라인에서도 100% 성공 경험. 축하 연출의 트리거는 **outbox insert 완료 이벤트**다.
-- `out_of_range` 화면은 로컬 계산 거리를 표시한다("체크포인트까지 320m") — 서버의 `distanceM` 공개 정책([03 §3](./03-verification.md))과 동일 단위.
-- 실패 상태 전수(권한/fix/정확도/반경 밖)의 화면·카피는 [05 §5](./05-design.md).
+- `confirm_marginal`은 막다른 실패가 아니라 **소프트 확인**이다 — 사유 전부(거리·정확도)와 로컬 계산 거리를 표시하고, '그래도 인증하기'로 통과시킨다(관대 정책 [03 §3](./03-verification.md) 정합). 서버가 `distance`/`accuracy` flag를 단다.
+- marginal 캡처는 **nearest 코스를 선부착해 insert**하고 코스 선택에서 '나중에 선택'을 숨긴다 — courseId=null 제출은 서버 거리 계산이 스킵되어 flag 없는 verified가 되는 구멍(적대 리뷰 BLOCKER)을 막는다.
+- 실패·확인 상태 전수(권한/fix/marginal)의 화면·카피는 [05 §5](./05-design.md).
 
 ### 4.2 큐 항목 라이프사이클 (영속 상태, outbox)
 
@@ -92,7 +92,7 @@ stateDiagram-v2
 ```
 
 - **`expired` 상태는 없다** — v0에 만료 규칙이 없다([03 §4](./03-verification.md)). [v1] 만료 재도입 시에도 "만료=flagged 제출"이므로 터미널 상태가 아니라 flush payload 속성이다.
-- `confirmed`의 서버 결과는 `server_result_json`에 보관되고 아래 매핑 표로 해석된다.
+- v0 구현은 2xx 확정 시 draft를 **즉시 삭제**하고 서버 결과를 보관하지 않는다(`server_result_json` 미사용 — 완등은 me/climbs가 SSOT, 필요해지면 confirmed 보관 부활). 아래 매핑 표는 응답 순간의 처리 규약이다.
 
 ### 4.3 서버 응답 → 클라 표시 상태 매핑 표
 
@@ -103,7 +103,7 @@ stateDiagram-v2
 | (미제출 — outbox `queued`) | **pending** | O (시계 뱃지) | 색칠 유지, "전송 대기" 표시 |
 | `verified`, `flags: []` | **verified** | O | 뱃지 제거, 무연출 확정 |
 | `verified`, `flags: [...]` | **verified** (동일) | O | **렌더 완전 동일, 구분 뱃지 없음** — 관대 정책의 취지. flags는 기록 상세에도 v0 미노출 |
-| `rejected`, `reason: duplicate_day` | (기존 기록으로 reconcile) | 변화 없음 | **지도 무연출** — 선은 원 기록으로 이미 칠해져 있어 빠질 색이 없다. 기록 탭 정리 + "이미 인증된 코스예요, 기존 기록이 유지돼요" 1줄 |
+| `rejected`, `reason: duplicate_day` | (기존 기록으로 reconcile) | 변화 없음 | **지도 무연출** — 선은 원 기록으로 이미 칠해져 있어 빠질 색이 없다. 기록 탭 정리(**고지 1줄은 v0 미구현 — 백로그**, 현재는 대기 항목만 조용히 제거) |
 | `replayed: true` | (위와 동일 규칙) | — | 기존 결과로 reconcile |
 | 4xx | **failed** | 색칠 롤백 | 희소 케이스 — 기록 탭 고지 |
 
@@ -138,7 +138,7 @@ stateDiagram-v2
 
 - **fetch 트리거**: `onCameraIdle`에서만 + 200ms 디바운스 (`onCameraChanged` 금지).
 - **타일 양자화 Query 키**: 뷰포트→타일 좌표(z/x/y) 양자화를 클라에서 계산해 Query 키 `['courses-tile', z, x, y]`로. bbox 연속값을 키에 넣으면 팬 1픽셀마다 캐시 미스 — 이건 데이터 규모와 무관한 **캐시 키 설계**라 v0부터 적용한다. 코스 데이터는 거의 불변이므로 `staleTime: Infinity`.
-- **zoom의 v0 역할 = 클라 렌더 게이트** (서버는 무시, [02 §5.1](./02-backend-spec.md)): 저줌에서는 코스선을 그리지 않고 산 마커만. **줌 히스테리시스** — 코스선 진입 z≥11.5 / 이탈 z<10.5 (경계 플리커 방지). 서버 LOD가 아니라 "선을 그릴지"의 클라 결정이다.
+- **코스선 노출 = 산 선택 게이트** (서버는 무시, [02 §5.1](./02-backend-spec.md)): 산 마커 탭 → 해당 산의 코스선만 노출(+진행 중 등반 코스는 유지), 시트 close = 해제. 산 마커는 줌 무관 상시 표시. (구 줌 히스테리시스 z≥11.5/<10.5는 2026-07-07 상호작용 재설계로 대체 — "산을 탭해야 코스가 보인다".)
 - 저줌 산 마커는 정복 상태를 표현한다 — 시각 스펙은 [05 §7](./05-design.md).
 - **리렌더 격리**: 폴리라인/마커는 `React.memo` + 좌표 배열 참조 안정성(useMemo, key=`courseId`). 완등 여부는 §1의 Set 룩업으로 스타일 분기.
 - 바텀시트: 시트 상태를 지도 컴포넌트 props에 연결 금지(드래그 프레임마다 지도 리렌더). 시트 내용은 독립 쿼리.

@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { api } from '@/lib/api';
-import { useMeClimbs } from '@/lib/colored';
-import { MountainsListSchema, type MountainsListItem } from '@/lib/schemas';
+import { useMeClimbs, useMountains } from '@/lib/colored';
+import { type MountainsListItem } from '@/lib/schemas';
 import { C, MONO, R, SP } from '@/lib/theme';
 
 // 순수 함수로 분리 — node --test 대상 (search.test.js 참조)
@@ -34,11 +32,8 @@ export default function Search() {
   const router = useRouter();
   const [q, setQ] = useState('');
 
-  const { data: mountains = [] } = useQuery({
-    queryKey: ['mountains'],
-    queryFn: async () => MountainsListSchema.parse(await api('/mountains')),
-    staleTime: Infinity,
-  });
+  // 인라인 useQuery → 공용 훅으로 이동(colored.ts) — profile 완등 세트·capture 배너와 캐시 공유
+  const { data: mountains = [], isError, refetch } = useMountains();
 
   const { data: meClimbs } = useMeClimbs();
   // 완등 산 ID 집합 — courseId 기준인 useVerifiedSet과 달리 mountainId 기준
@@ -105,7 +100,16 @@ export default function Search() {
             )}
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={s.empty}>검색 결과가 없어요</Text>}
+        ListEmptyComponent={
+          // L5: 조회 실패를 '검색 결과 없음'으로 오도하지 않기 — 에러+재시도 (records 패턴)
+          isError ? (
+            <TouchableOpacity style={s.errorBox} onPress={() => refetch()} accessibilityRole="button">
+              <Text style={s.errorText}>산 목록을 불러오지 못했어요. 눌러서 다시 시도</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={s.empty}>검색 결과가 없어요</Text>
+          )
+        }
       />
     </SafeAreaView>
   );
@@ -160,4 +164,6 @@ const s = StyleSheet.create({
   },
   conqueredChipText: { fontSize: 11, fontWeight: '700', color: C.success },
   empty: { textAlign: 'center', color: C.faint, marginTop: 40 },
+  errorBox: { marginTop: 40, alignItems: 'center', padding: SP.lg },
+  errorText: { fontWeight: '500', color: C.dangerText, textAlign: 'center' },
 });

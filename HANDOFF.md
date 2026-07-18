@@ -1,3 +1,61 @@
+# 핸드오프 — 2026-07-17 새벽 (3차: 완등 컬렉션 + summit 교정 — 프로덕션 반영 완료)
+
+## 방금 한 것
+- **완등 컬렉션(feat, 3f8e2e2)**: mountainSets.ts SSOT — 큐레이션 5세트(19산 전 커버)·산 완등=전 코스(verified 수==courseCount 동치 파생, 백엔드 무변경)·profile '완등 세트' 섹션(N/19+세트 카드)·완등 성공 화면 축하 칩(setState 직전 동기 계산 — flush 레이스 차단). code-reviewer 1패스 반영(파라미터 배열 정규화·순서 계약 주석·세트 카드 스크린리더 라벨; meClimbs 레이스 HIGH는 react-query 캐시 유지 특성으로 오진 판정 — 콜드 캐시 엣지만 주석 수용). tsc 0·31/31·시뮬 렌더 확인.
+- **티켓 04 summit 교정(resolved)**: rebuild_summits.mjs(rebuild_v0 패턴) — 우면산→소망탑(512m 이동, 공군부대 선례)·일자산→해맞이광장(사용자 지도 확인 127.1537,37.5290)·개화산→봉수대. 7코스 기존 들머리 고정 재라우팅, id·이름·source_id 불변, checkpoint=신규 summit 0.0m ×7. codex 적대: HIGH(풀 재생성 identity-unsafe — build.mjs 경고 가드 추가)·MEDIUM(행수 미검증 — 적용을 트랜잭션+문장별 rowCount=1 단언으로) 반영, 잔여(재실행 스냅 가드·connector 63m informational·peakOverride fresh-fetch) 백로그.
+- **프로덕션**: summit_corrections.sql 10/10 적용(각 rowCount=1) → 사후 검증 3산 7코스 0.0m·고도 293/128/134·총 코스 50 → **프로덕션 스모크 18/18** → 스모크 데이터 정리.
+- **주의(재발 방지)**: seed_seoul.sql 풀 재생성 산출물은 프로덕션 upsert 금지(코스 셀렉션 드리프트 — build.mjs 실행 시 경고 출력). 기존 코스 갱신은 rebuild_summits/rebuild_v0 방식만.
+
+## 다음 할 것
+1. **실기기 런타임 검증**(티켓 01) — 남은 유일 실질 항목(우면산 소망탑 인증 확인 포함하면 좋음).
+2. STITCH 키 로테이션(사용자 직접) — 변동 없음.
+
+---
+
+# 핸드오프 — 2026-07-17 (지오 정합성 배치: 인증 관대성·경로 트림·감사 픽스 — 미커밋)
+
+## 방금 한 것 (전부 워킹트리, 커밋 보류 — 사용자 결정 대기)
+사용자 보고 2건("코스가 지하철역부터 시작", "정상인데 완등 안 됨")에서 출발, diagnosing-bugs로 진단 → 서브에이전트 4배치(api/mobile/ETL/조사) + 리뷰 게이트(code-reviewer 1패스 + codex 적대 3회, BLOCKER 0 종결) → 시뮬 눈검증.
+- **WS1 인증 관대성**: 클라 막다른 차단(out_of_range/low_accuracy) → `confirm_marginal` 소프트 확인("그래도 인증하기"). marginal은 nearest(또는 preselect) 코스 **선부착**(적대 BLOCKER: '나중에 선택' null 코스로 distance flag 회피 차단 — marginal에선 그 버튼 숨김). 서버 `accuracy` flag(>100m) 신설. 문구 '나중에 선택할게요'→'코스 없이 기록할게요'.
+- **api 픽스**: 스로틀 키 IP→userId 가드(`UserOrIpThrottlerGuard`, auth 경로는 IP 고정+refresh 불인정 — 적대·리뷰어 HIGH 수렴 반영, req.path+대소문자·쿼리 우회 차단) / capturedAt skew 2분 허용 + **서버 clamp**(미래시각 저장 시 speed 우회·KST 자정 duplicate 슬롯 선점 차단) / 가입 이메일 레이스 409(제약-디스패치).
+- **mobile 픽스(감사 ws4)**: 429·401 flush 재큐(+429는 루프 중단), 같은 계정 재로그인 draft 보존(`reconcileLocalDataForAccount`, exact 이메일 비교), 완등 삭제 UI(records, DELETE 재사용+확인 Alert), 스테일 세션 요약 가드(16h), 등반 덮어쓰기·초안 삭제 확인 Alert, 죽은 분기 삭제, '정복'→'완등', 검색/지도 에러 빈상태, tile lng clamp.
+- **ETL 경로 트림(ws2)**: build.mjs 선두 footway 연속 구간 제거(잔여≤minDist 보호), source_id/이름/checkpoint 불변(upsert 연속성), 10/42 코스 트림(안산 서측 4255→1118m 등), easy 휴리스틱 상승 우선, ele 가드(일자산 74→134 seed만). validate 6/6.
+- **summit 실측(ws3)**: OK12/WARN2/**RED2** — **우면산이 "정상인데 인증 안 됨"의 실증**(실질 정상 소망탑이 checkpoint서 512m, 실정상은 공군부대 → 청계산 선례로 소망탑 채택 권고), 일자산 74→134m 확정. `.scratch/v0-release-readiness/ws3-summit-verification.md`(교정 UPDATE 초안 포함). **coursesのcheckpoint 재생성까지 필요**(티켓 04).
+- **docs 정합**: 03(accuracy flag·위협모델·Sentry [v1] 하향)·04(confirm_marginal 상태도·큐 무보관 실물·산-탭 게이트)·05(원탭 예외·카피 표)·testing.md(flag 경계).
+- **시뮬 눈검증(cliclick+AX)**: marginal 멀리/조금 카피·사유 병기 ✓, 그래도 인증→marginal select에서 '코스 없이' 숨김 ✓(BLOCKER UI), 도착확인·성공 시퀀스·기록 삭제버튼 노출 ✓. **자정 넘김으로 kst_date·콜드스타트 승격·선부착 제출 E2E 우연 검증** ✓. **신규 발견+수정**: records 카드가 중첩 삭제 버튼을 AX에서 가림(VoiceOver 도달 불가) → 래퍼 `accessible={false}`, AX 트리 노출 실증. L6(성공 카운터 stale 점프) 라이브 재현 — 백로그 유지.
+- **검증 최종**: api 4/4 + 로컬 스모크 18/18(일회용 JWT_SECRET 부트) · mobile tsc 0 + 22/22 · ETL validate 6/6.
+
+## 커밋·배포 완료 (2026-07-17 01시대, 사용자 승인 "차례대로 진행")
+- **커밋 5개**: 228c4f5 api / 12f369a mobile / 04b768b data 트림 / 4db7aef docs / a1b4741 스캐폴드+상태. 미커밋 잔여 0.
+- **프로덕션 DB**: seed_seoul.sql upsert(42코스, 트랜잭션) + 일자산 134m — 검증: 코스 50, 안산 서측 1118m·easy, ST_DWithin 91m=T/500m=F, checkpoint=경로끝 0.0m, source_id 42.
+- **API 배포**(Fly): healthz 200 + **프로덕션 스모크 18/18** + 스모크 데이터 정리(climbs 16·users 4).
+
+## 시뮬 잔여 3탭 — 사용자 직접 확인 완료 (2026-07-17)
+완등 삭제 Alert(+테스트 완등 2건 정리), M3 등반 덮어쓰기 Alert, 트림 코스선(안산) 눈확인 — 전부 통과. 이로써 이번 배치의 런타임 검증 전 항목 종결. Metro·시뮬 정리됨.
+
+## 다음 할 것
+1. **티켓 04**(summit 교정: 우면산 소망탑·개화산 + courses checkpoint 재생성) — 일자산 해맞이광장 좌표 수동 확인(카카오/네이버 지도) 후 착수.
+2. **정복 컬렉션**(성취·수집 심화 — grilling으로 설계 확정: 산 정복=전 코스, 큐레이션 5세트 전 산 커버, profile 확장, 완등 화면 인라인 축하, 클라 파생 전용) — 파킹 해제 가능.
+3. 실기기 검증(frontier 01)·STITCH 키 로테이션 — 변동 없음.
+
+---
+
+# 핸드오프 — 2026-07-16 (작업규칙 하네스·루프 재구성 — docs-only)
+
+## 방금 한 것
+- **CLAUDE.md 재구성** — `@AGENTS.md` import(공용 워크플로가 Claude 세션에도 로드), 규칙을 **하네스**(로딩 그래프·우선순위·도구 인벤토리·훅·SSOT)와 **루프**(시작→위임→게이트→완료 게이트→기록) 두 절로 재편. 중복 Wayfinder 블록 제거(원본=AGENTS.md), 스테일 '지금 상태' 절 제거(상태 SSOT=이 파일+`.scratch/`).
+- **CONTEXT.md** — placeholder → 확정 도메인 용어 12개(완등/'정복' 금칙·lenient·replay·아웃박스·등반 세션 등).
+- **workflow.md** — Scale 절 추가: 스캐폴드는 기능 규모용, trivial은 게이트만. high-risk 표면(지오·마이그레이션·RLS·멱등성·인증·시크릿)은 규모 무관 예외 없음.
+- **드리프트 수정** — README 상태(검색·다크·등반 세션 v0.5 반영, '정복 지도'→'완등 지도'), smoke-test 스킬·deploy-api의 하드코딩 체크 개수 제거(기준=스크립트 출력).
+- **시크릿 발견 보고** — CLAUDE.local.md + `.claude/settings.local.json`에 STITCH_API_KEY 평문(전역 하한 위반) → 로테이션 + 셸 env 이관 권고. allowlist의 keychain 조회 항목(`security dump-keychain` 등) 제거 권고. 값은 미출력.
+- **(같은 날 후속) 규칙 미세조정** — ①위임 모델 라우팅: 하위 티어 기본(기계적=haiku·구현/리뷰=sonnet·판단/적대 리뷰만 세션 모델, `code-reviewer`=sonnet 고정) — 미지정 상속이 토큰 과다의 주범이었음. ②진행상황 읽기 단일화: 활성 effort면 map.md 하나, 없으면 HANDOFF 최신 항목. ③**티켓 트래킹 단일화**: GitHub Issues 이원화 접음(사용자 확정, 열린 이슈 0) — 트래커는 `.scratch/` 하나, 규범은 workflow.md·issue-tracker.md 갱신.
+
+## 다음 할 것 — 변동 없음
+1. **실기기 런타임 검증**(`.scratch/v0-release-readiness` frontier 01) — 유일한 실질 잔여.
+2. STITCH 키 로테이션 + 로컬 파일 2곳에서 평문 제거(사용자 직접).
+
+---
+
 # 핸드오프 — 2026-07-07 (내 위치 FAB + 리포 정리)
 
 ## 방금 한 것 (커밋 9adff91, origin push 완료)

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { logout } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 import { PeakMark } from '@/components/PeakMark';
+import { api } from '@/lib/api';
 import { DIFFICULTY_COLOR, DIFFICULTY_LABEL, useMeClimbs, useVerifiedSet } from '@/lib/colored';
 import { deleteDraft, flush, listDrafts, subscribeOutbox, type Draft } from '@/lib/outbox';
 import { useSession } from '@/lib/stores';
@@ -23,16 +24,35 @@ export default function Records() {
   const router = useRouter();
   const drafts = useDrafts();
   const { data, isLoading, isError, refetch } = useMeClimbs();
-  const setAuthed = useSession((s) => s.setAuthed);
+  const signOut = useSession((s) => s.signOut);
+  const qc = useQueryClient();
   // 완등 마크는 현재 등급 색으로 — 등급이 오르면 마크 색도 따라 오른다.
   const tierColor = tierFor(useVerifiedSet().size).color;
+
+  // 완등 삭제 — 서버 DELETE /climbs/:id(soft delete) 재사용. 오인증(자동 제출 포함) 되돌리기 수단.
+  const confirmDeleteClimb = (climbId: string) =>
+    Alert.alert('완등 기록을 삭제할까요?', '지도 색칠과 완등 수에서 빠져요.', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api(`/climbs/${climbId}`, { method: 'DELETE' });
+            qc.invalidateQueries({ queryKey: ['me-climbs'] });
+          } catch {
+            Alert.alert('삭제하지 못했어요', '잠시 후 다시 시도해주세요.'); // 404 등 비네트워크 원인 포함 — 문구 일반화(리뷰 LOW)
+          }
+        },
+      },
+    ]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>
       {/* 헤더 */}
       <View style={s.header}>
         <Text style={s.title}>기록</Text>
-        <TouchableOpacity onPress={() => logout().then(() => setAuthed(false))}>
+        <TouchableOpacity onPress={signOut} accessibilityRole="button" accessibilityLabel="로그아웃">
           <Text style={s.logout}>로그아웃</Text>
         </TouchableOpacity>
       </View>
@@ -58,8 +78,9 @@ export default function Records() {
           <Text style={s.pendingTitle}>
             전송 대기 {drafts.filter((d) => d.state !== 'failed_permanent').length}건
           </Text>
+          {/* 래퍼 accessible=false: AX 리프가 되면 중첩된 삭제 버튼이 VoiceOver에서 도달 불가(시뮬 AX 검증에서 발견) */}
           {drafts.map((d) => (
-            <TouchableOpacity key={d.local_uuid} style={s.pendingRow} onPress={() => flush()}>
+            <TouchableOpacity key={d.local_uuid} style={s.pendingRow} onPress={() => flush()} accessible={false}>
               <Text style={s.pendingText}>
                 {d.state === 'failed_permanent' ? '⚠️ 제출 실패' : '🕐 대기 중'} ·{' '}
                 {new Date(d.captured_at).toLocaleString('ko-KR', {
@@ -72,7 +93,18 @@ export default function Records() {
                   ? ` (마지막 시도 ${new Date(d.last_attempt_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })})`
                   : ''}
               </Text>
-              <TouchableOpacity onPress={() => deleteDraft(d.local_uuid)}>
+              {/* M4: 초안은 미전송 완등의 유일본 — 원탭 오탭 유실 방지 확인 1단계 */}
+              <TouchableOpacity
+                onPress={() =>
+                  Alert.alert('아직 전송 안 된 기록이에요. 삭제할까요?', undefined, [
+                    { text: '취소', style: 'cancel' },
+                    { text: '삭제', style: 'destructive', onPress: () => deleteDraft(d.local_uuid) },
+                  ])
+                }
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="전송 대기 기록 삭제"
+              >
                 <Text style={s.deleteBtn}>삭제</Text>
               </TouchableOpacity>
             </TouchableOpacity>
@@ -87,8 +119,10 @@ export default function Records() {
         contentContainerStyle={s.listContent}
         renderItem={({ item }) => (
           // P0-4: mountain.id 있는 카드만 탭 가능 — 지도로 점프
+          // accessible=false: 중첩 삭제 버튼 VoiceOver 도달 보장(래퍼 플래튼 방지)
           <TouchableOpacity
             style={s.card}
+            accessible={false}
             disabled={!item.mountain?.id}
             onPress={() => {
               if (!item.mountain?.id) return;
@@ -110,13 +144,19 @@ export default function Records() {
                   <Text style={s.difficultyText}>{DIFFICULTY_LABEL[item.course.difficulty]}</Text>
                 </View>
               )}
-              {item.status === 'verified' ? (
-                <View style={s.verifiedChip}>
-                  <Text style={s.verifiedChipText}>인증됨</Text>
-                </View>
-              ) : (
-                <Text style={s.alreadyText}>이미 인증된 코스</Text>
-              )}
+              {/* M7: 서버가 verified만 반환(/me/climbs)하므로 비-verified 분기는 죽은 코드였음 — 삭제 */}
+              <View style={s.verifiedChip}>
+                <Text style={s.verifiedChipText}>인증됨</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => confirmDeleteClimb(item.climbId)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="완등 기록 삭제"
+                style={s.cardDeleteBtn}
+              >
+                <Text style={s.deleteBtn}>삭제</Text>
+              </TouchableOpacity>
             </View>
             {/* 코스명 타이틀 */}
             <Text style={s.cardTitle}>
@@ -248,7 +288,7 @@ const s = StyleSheet.create({
     borderRadius: R.pill,
   },
   verifiedChipText: { fontSize: 11, fontWeight: '700', color: C.success },
-  alreadyText: { fontSize: 12, fontWeight: '500', color: C.faint },
+  cardDeleteBtn: { marginLeft: 'auto' },
   cardTitle: { fontSize: 16, fontWeight: '700', color: C.ink },
   cardMeta: { fontSize: 13, fontWeight: '400', color: C.faint, fontFamily: MONO },
   mapHint: { fontSize: 12, color: C.faint, marginTop: SP.xs },
