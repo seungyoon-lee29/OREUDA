@@ -19,3 +19,15 @@ CLAUDE.local.md
 
 # 세션 임시물(스크린샷·일회성 스크립트)
 scratchpad/
+
+# 에이전트 워크플로·개인 설정 — 로컬 전용 (2026-07-19 레포에서 내림)
+CLAUDE.md
+AGENTS.md
+CONTEXT.md
+HANDOFF.md
+.claude/
+.mcp.json
+.scratch/
+.wayfinder/
+.worktreeinclude
+docs/agents/
