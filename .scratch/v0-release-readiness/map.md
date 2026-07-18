@@ -27,6 +27,7 @@
 - **WS3 완료: OK 12 / WARN 2 / RED 2** → [04 - summit 좌표 교정](./issues/04-summit-corrections.md). **우면산 = 보고된 "정상인데 인증 안 됨"의 실증**(실질 정상 소망탑이 checkpoint서 512m, 실정상은 공군부대). 일자산 좌표는 수동 확인 후 반영.
 - [01 - 실기기 등반 세션 런타임 검증](./issues/01-real-device-hike-verification.md) — ready-for-human, 최후 병합 검증.
 - 백로그(code-reviewer LOW): hikeStats 테스트 실물 import 전환.
+- **완등 상시 색칠(2026-07-19)**: 사용자 지적(README 핵심 피치 미구현) → visibleCourses에 verified/pending 상시 포함 + useVerifiedSet 참조 안정화 + map.png 히어로 교체. 게이트: 리뷰 1패스·tsc 0·31/31·시뮬 실렌더. 백로그 추가: selectCourse 타 산 시트 플리커 · 05 §3.2 미완등 색 드리프트.
 
 ## Not yet specified
 
