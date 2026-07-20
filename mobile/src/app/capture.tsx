@@ -239,14 +239,14 @@ export default function Capture() {
 
       {state.key === 'requesting_permission' && <Center title="위치 권한 확인 중…" />}
       {state.key === 'priming' && (
-        <Center title="위치 권한이 필요해요" body="인증하는 순간의 위치만 딱 한 번 사용해요. 백그라운드 추적은 하지 않아요.">
+        <Center title="위치 권한이 필요해요" body="완등 인증에는 인증하는 순간의 위치만 딱 한 번 사용해요.">
           <TouchableOpacity style={s.btn} onPress={() => start(true)} accessibilityRole="button">
             <Text style={s.btnText}>위치 허용하고 인증</Text>
           </TouchableOpacity>
         </Center>
       )}
       {state.key === 'permission_denied' && (
-        <Center title="위치 권한이 필요해요" body="인증 순간의 위치로만 완등을 확인해요. 백그라운드 추적은 하지 않아요.">
+        <Center title="위치 권한이 필요해요" body="완등 인증은 인증 순간의 위치로만 확인해요.">
           <TouchableOpacity style={s.btn} onPress={() => Linking.openSettings()} accessibilityRole="button">
             <Text style={s.btnText}>설정 열기</Text>
           </TouchableOpacity>

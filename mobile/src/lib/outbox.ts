@@ -59,7 +59,7 @@ export function getCachedCourses(mountainId: string): Course[] | null {
 
 // ---- 활성 등반 세션 (등반 시작 → 진행 중 → 완등 인증 사이 상태) ----
 // 등반은 몇 시간이라 앱 재시작을 넘겨 지속해야 함 → SQLite 단일 행(id=1). 완등 인증 성공 시 clear.
-// ponytail: 백그라운드 추적 없음 — 이건 "시작했다"는 세션 플래그일 뿐, 위치는 인증 순간에만 1점 사용(설계 유지).
+// ponytail: 이건 "시작했다"는 세션 플래그일 뿐. 인증은 순간 1점만 사용하고, 세션 중 위젯/알림 갱신은 hikeTracker.ts가 구독해 담당.
 export type ActiveHike = {
   courseId: string;
   mountainId: string;

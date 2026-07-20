@@ -114,7 +114,7 @@ export default function MapScreen() {
   }, [activeHike]);
 
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
-  // ponytail: 백그라운드 추적 아님 — 앱 백그라운드 시 iOS가 watch를 자동 중단(프라이버시 설계 유지).
+  // ponytail: 이 watch는 포그라운드 전용 — 앱 백그라운드 시 iOS가 자동 중단. 잠금화면 위젯/알림의 백그라운드 갱신은 hikeTracker.ts 태스크가 담당.
   const [distM, setDistM] = useState<number | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
@@ -135,7 +135,7 @@ export default function MapScreen() {
         },
       );
       // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
-      // resolve 후 재확인해 self-remove — "백그라운드 추적 안 함" 계약 유지.
+      // resolve 후 재확인해 self-remove — 이 포그라운드 watch의 수명 관리(백그라운드 태스크는 별개).
       if (cancelled) s.remove();
       else sub = s;
     })();
