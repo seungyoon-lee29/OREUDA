@@ -147,14 +147,12 @@ function buildCourses(m, data) {
     chosen.push({ end, d: len, brg, pts, sourceId }); // d = 트림 후 잔여 길이(간선 haversine 합) / brg·name은 트림 전 원 endpoint 기준
   }
 
+  // 고도 정본 = config.ele(사용자 결정 2026-07-20: OSM 측량값 대신 공식/config 고도 표기). OSM ele는 큰 괴리만 경고.
+  // 이전엔 OSM ele 우선(괴리 30m↑만 config)이었으나 인왕339/남산267 등 1~5m 드리프트로 config 표기와 불일치 → config 정본으로 전환.
   const osmEle = parseFloat(data.peak?.tags.ele);
-  let ele = Math.round(osmEle || m.ele);
-  if (osmEle && Math.abs(osmEle - m.ele) > 30) {
-    // OSM peak ele 오염 대응(일자산 74 vs 실제 134) — 괴리 30m 초과면 config 우선
-    console.warn(`⚠ ${m.name}: OSM ele ${osmEle}m vs config ${m.ele}m 괴리 >30m — config 사용`);
-    ele = m.ele;
-  }
-  if (m.peakOverride) ele = m.peakOverride.ele; // ws3 검증 고도 — OSM ele 태그보다 우선(우면산 313 오태깅)
+  let ele = Math.round(m.ele);
+  if (osmEle && Math.abs(osmEle - m.ele) > 30) console.warn(`⚠ ${m.name}: OSM ele ${osmEle}m vs config ${m.ele}m 괴리 >30m`);
+  if (m.peakOverride) ele = m.peakOverride.ele; // ws3 검증 고도(우면산 313 오태깅 등)
   const ascent = Math.max(ele - m.baseEle, 30);
   const dirCount = {};
   const courses = chosen.map((c) => {
