@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
-import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
+import { FETCH_TILE_Z, haversineM, lngLatToTile, pathProgress, tileToBboxWithMargin } from '@/lib/geo';
 import { cacheCourses, clearHike, getCachedCourses, setHikeStartAltitude, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
@@ -110,6 +110,8 @@ export default function MapScreen() {
       radiusM: c.verifyRadiusM,
       // 코스 페이스(분/m) — 남은 직선거리×페이스로 대략 ETA. ponytail: 직선이라 실거리보다 짧게 잡힘 → '약'.
       paceMinPerM: c.durationMin && c.distanceM ? c.durationMin / c.distanceM : null,
+      // 진행률 라인용 경로(들머리→정상). 내 위치를 여기 투영해 얼마나 왔는지 계산.
+      path: c.path.coordinates,
     };
   }, [activeHike]);
 
@@ -180,6 +182,15 @@ export default function MapScreen() {
         : '';
     return `정상 ${remainLabel}${eta}`;
   }, [remainLabel, activeCheckpoint, distM]);
+
+  // 상단 배너 진행률 라인(0~100%) — 내 위치를 코스 경로에 투영한 누적거리 비율. 도착=100%. GPS 전엔 null(라인 숨김).
+  // 코스에서 1km 넘게 벗어나면(집에서 시작·GPS 튐 등) 투영값이 끝점으로 collapse해 무의미 → 라인 숨김.
+  const progressPct = useMemo(() => {
+    if (arrived) return 100;
+    if (!myPos || !activeCheckpoint?.path || activeCheckpoint.path.length < 2) return null;
+    const p = pathProgress(activeCheckpoint.path, myPos.lat, myPos.lng);
+    return p.offM > 1000 ? null : Math.round(p.frac * 100);
+  }, [arrived, myPos, activeCheckpoint]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
   // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.
@@ -430,27 +441,45 @@ export default function MapScreen() {
       {activeHike ? (
         <View style={[s.hikeBarWrap, { top: insets.top + SP.sm }]} pointerEvents="box-none">
           <View style={s.hikeCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.hikeName} numberOfLines={1}>🥾 {activeHike.courseName}</Text>
-              <Text style={[s.hikeMeta, arrived && s.hikeMetaArrived]} numberOfLines={1}>
-                {progressLabel ? `${elapsedLabel} · ${progressLabel}` : `등반 중 · ${elapsedLabel}`}
-              </Text>
+            <View style={s.hikeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.hikeName} numberOfLines={1}>🥾 {activeHike.courseName}</Text>
+                <Text style={[s.hikeMeta, arrived && s.hikeMetaArrived]} numberOfLines={1}>
+                  {progressLabel ? `${elapsedLabel} · ${progressLabel}` : `등반 중 · ${elapsedLabel}`}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[s.hikeCertify, arrived && s.hikeCertifyArrived]}
+                activeOpacity={0.85}
+                onPress={() =>
+                  router.push({
+                    pathname: '/capture',
+                    params: { mountainId: activeHike.mountainId, courseId: activeHike.courseId },
+                  })
+                }
+              >
+                <Text style={s.hikeCertifyText}>완등 인증</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.hikeEnd} onPress={() => clearHike()} hitSlop={10} accessibilityRole="button" accessibilityLabel="등반 종료">
+                <Text style={s.hikeEndText}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={[s.hikeCertify, arrived && s.hikeCertifyArrived]}
-              activeOpacity={0.85}
-              onPress={() =>
-                router.push({
-                  pathname: '/capture',
-                  params: { mountainId: activeHike.mountainId, courseId: activeHike.courseId },
-                })
-              }
-            >
-              <Text style={s.hikeCertifyText}>완등 인증</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.hikeEnd} onPress={() => clearHike()} hitSlop={10} accessibilityRole="button" accessibilityLabel="등반 종료">
-              <Text style={s.hikeEndText}>✕</Text>
-            </TouchableOpacity>
+            {/* 진행률 라인 — 내 위치를 코스 경로에 투영한 %. GPS 잡히기 전엔 숨김. */}
+            {progressPct != null && (
+              <View style={s.progressRow}>
+                <View
+                  style={s.progressTrack}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel="등반 진행률"
+                  accessibilityValue={{ min: 0, max: 100, now: progressPct, text: arrived ? '완등 지점' : `${progressPct}%` }}
+                >
+                  <View style={[s.progressFill, { width: `${progressPct}%` }, arrived && s.progressFillDone]} />
+                </View>
+                <Text style={[s.progressPct, arrived && s.progressPctDone]} numberOfLines={1}>
+                  {arrived ? '완등 지점' : `${progressPct}%`}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
       ) : (
@@ -710,9 +739,9 @@ const s = StyleSheet.create({
   // 등반 중 상단 배너 — success 좌보더 강조 + granite glass. 검색 pill 자리를 대체.
   hikeBarWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
   hikeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SP.sm,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: SP.xs,
     backgroundColor: C.glass,
     borderRadius: R.card,
     paddingVertical: SP.sm,
@@ -722,6 +751,14 @@ const s = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: C.success,
   },
+  hikeRow: { flexDirection: 'row', alignItems: 'center', gap: SP.sm },
+  // 진행률 라인 — 트랙(dim) 위 채움(success), 우측에 % 텍스트
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: SP.sm },
+  progressTrack: { flex: 1, height: 5, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3, backgroundColor: C.success },
+  progressFillDone: { backgroundColor: C.ink },
+  progressPct: { fontSize: 11, fontWeight: '700', color: C.success, fontFamily: MONO, minWidth: 34, textAlign: 'right' },
+  progressPctDone: { color: C.ink },
   hikeName: { fontSize: 15, fontWeight: '700', color: C.ink },
   hikeMeta: { fontSize: 12, color: C.success, fontWeight: '600', marginTop: 2, fontFamily: MONO },
   hikeMetaArrived: { fontWeight: '700' },

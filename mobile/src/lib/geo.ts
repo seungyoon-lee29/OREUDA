@@ -10,6 +10,52 @@ export function haversineM(lat1: number, lng1: number, lat2: number, lng2: numbe
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// 등반 진행률 — 현재 위치를 코스 경로(들머리→정상)에 투영. frac=누적거리/전체(0..1), offM=경로 최근접점까지 거리(m).
+// path=[lng,lat][]. 로컬 등거리 평면(경도 cos(lat) 보정)에서 각 세그먼트에 투영해 최근접 세그먼트를 찾는다.
+// offM은 호출부에서 "코스 이탈(먼 곳)" 판별용 — 경로에서 크게 벗어나면 frac은 의미 없어(끝점으로 collapse) 라인을 숨긴다.
+export function pathProgress(
+  path: [number, number][],
+  lat: number,
+  lng: number,
+): { frac: number; offM: number } {
+  if (path.length < 2) return { frac: 0, offM: Infinity };
+  const kx = Math.cos((lat * Math.PI) / 180); // 경도 1도의 상대 미터 스케일
+  const Px = lng * kx;
+  const Py = lat;
+  const seg: number[] = [];
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    const d = haversineM(path[i - 1][1], path[i - 1][0], path[i][1], path[i][0]);
+    seg.push(d);
+    total += d;
+  }
+  if (total === 0) return { frac: 0, offM: haversineM(lat, lng, path[0][1], path[0][0]) };
+  let bestD2 = Infinity;
+  let bestCum = 0;
+  let bestProjLat = path[0][1];
+  let bestProjLng = path[0][0];
+  let cum = 0;
+  for (let i = 1; i < path.length; i++) {
+    const ax = path[i - 1][0] * kx, ay = path[i - 1][1];
+    const bx = path[i][0] * kx, by = path[i][1];
+    const abx = bx - ax, aby = by - ay;
+    const ab2 = abx * abx + aby * aby;
+    let t = ab2 > 0 ? ((Px - ax) * abx + (Py - ay) * aby) / ab2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const dx = Px - (ax + abx * t), dy = Py - (ay + aby * t);
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      bestCum = cum + seg[i - 1] * t;
+      bestProjLat = ay + aby * t;
+      bestProjLng = (ax + abx * t) / kx;
+    }
+    cum += seg[i - 1];
+  }
+  const f = bestCum / total;
+  return { frac: f < 0 ? 0 : f > 1 ? 1 : f, offM: haversineM(lat, lng, bestProjLat, bestProjLng) };
+}
+
 // 04 §7 타일 양자화 Query 키 — bbox 연속값을 키에 넣으면 팬 1픽셀마다 캐시 미스
 export const FETCH_TILE_Z = 11;
 
