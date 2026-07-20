@@ -1,6 +1,6 @@
--- 들머리 교정 — 한양도성 도심 접근로 트림(남산 동측·북서측, 인왕산 동측·남서측 4코스).
+-- 들머리 교정 — 한양도성 도심 접근로 트림(남산 동측·북서측 2코스). 인왕산 2코스는 relation 과다절단 오탐으로 제외.
 -- 생성: node supabase/etl/rebuild_trailheads.mjs — identity(id·이름·source_id·checkpoint) 보존, path·거리·판정만 갱신.
--- 원자적 적용: begin/commit + 대상 source_id 4개 존재 검증(하나라도 없으면 전체 롤백). © OpenStreetMap contributors, ODbL.
+-- 원자적 적용: begin/commit + 대상 source_id 2개 존재 검증(하나라도 없으면 전체 롤백). © OpenStreetMap contributors, ODbL.
 
 begin;
 
