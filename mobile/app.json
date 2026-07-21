@@ -23,7 +23,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.seungyoonlee.orda"
     },
@@ -46,7 +47,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "등반 중 정상까지 남은 거리를 실시간으로 안내하고 완등을 인증하기 위해 앱 사용 중에만 위치를 사용합니다. 백그라운드 추적은 하지 않습니다."
+          "locationWhenInUsePermission": "등반을 시작하면 정상까지 남은 거리·경과 시간을 잠금화면 위젯과 알림에 실시간으로 표시하기 위해 위치를 사용합니다. 추적은 등반 세션 중에만 하고, 종료하면 즉시 중단합니다.",
+          "locationAlwaysAndWhenInUsePermission": "화면을 꺼도 안정적으로 진행 상황을 갱신하려면 '항상 허용'을 선택하세요. 위치는 등반 세션 중에만 사용하며 서버로 전송하지 않습니다.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
@@ -63,6 +67,12 @@
               "https://repository.map.naver.com/archive/maven"
             ]
           }
+        }
+      ],
+      [
+        "expo-widgets",
+        {
+          "frequentUpdates": true
         }
       ]
     ],

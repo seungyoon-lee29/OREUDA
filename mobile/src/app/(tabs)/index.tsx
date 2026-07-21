@@ -13,7 +13,8 @@ import { useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
-import { FETCH_TILE_Z, haversineM, lngLatToTile, pathProgress, tileToBboxWithMargin } from '@/lib/geo';
+import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
+import { buildCoursePath, projectOnCourse } from '@/lib/courseProgress';
 import { cacheCourses, clearHike, getCachedCourses, setHikeStartAltitude, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
@@ -112,11 +113,12 @@ export default function MapScreen() {
       paceMinPerM: c.durationMin && c.distanceM ? c.durationMin / c.distanceM : null,
       // 진행률 라인용 경로(들머리→정상). 내 위치를 여기 투영해 얼마나 왔는지 계산.
       path: c.path.coordinates,
+      distanceM: c.distanceM, // 서버 실측 총거리 — 위젯과 동일하게 buildCoursePath에 넘겨 인덱스 정본 일치.
     };
   }, [activeHike]);
 
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
-  // ponytail: 백그라운드 추적 아님 — 앱 백그라운드 시 iOS가 watch를 자동 중단(프라이버시 설계 유지).
+  // ponytail: 이 watch는 포그라운드 전용 — 앱 백그라운드 시 iOS가 자동 중단. 잠금화면 위젯/알림의 백그라운드 갱신은 hikeTracker.ts 태스크가 담당.
   const [distM, setDistM] = useState<number | null>(null);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
   const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
@@ -137,7 +139,7 @@ export default function MapScreen() {
         },
       );
       // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
-      // resolve 후 재확인해 self-remove — "백그라운드 추적 안 함" 계약 유지.
+      // resolve 후 재확인해 self-remove — 이 포그라운드 watch의 수명 관리(백그라운드 태스크는 별개).
       if (cancelled) s.remove();
       else sub = s;
     })();
@@ -184,13 +186,18 @@ export default function MapScreen() {
   }, [remainLabel, activeCheckpoint, distM]);
 
   // 상단 배너 진행률 라인(0~100%) — 내 위치를 코스 경로에 투영한 누적거리 비율. 도착=100%. GPS 전엔 null(라인 숨김).
+  // 투영은 잠금화면 위젯과 동일한 courseProgress 단일 정본. 누적거리 테이블은 코스당 1회만 빌드(myPos마다 재계산 안 함).
   // 코스에서 1km 넘게 벗어나면(집에서 시작·GPS 튐 등) 투영값이 끝점으로 collapse해 무의미 → 라인 숨김.
+  const courseIndex = useMemo(
+    () => (activeCheckpoint?.path ? buildCoursePath(activeCheckpoint.path, activeCheckpoint.distanceM) : null),
+    [activeCheckpoint],
+  );
   const progressPct = useMemo(() => {
     if (arrived) return 100;
-    if (!myPos || !activeCheckpoint?.path || activeCheckpoint.path.length < 2) return null;
-    const p = pathProgress(activeCheckpoint.path, myPos.lat, myPos.lng);
-    return p.offM > 1000 ? null : Math.round(p.frac * 100);
-  }, [arrived, myPos, activeCheckpoint]);
+    if (!myPos || !courseIndex) return null;
+    const p = projectOnCourse(courseIndex, myPos.lat, myPos.lng);
+    return p.offCourseM > 1000 ? null : Math.round(p.fraction * 100);
+  }, [arrived, myPos, courseIndex]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
   // ponytail: 타일 /courses엔 산 이름이 없어(mountainId만) 코스 단위 추천 — 탭하면 openMountain으로 산 시트 오픈.

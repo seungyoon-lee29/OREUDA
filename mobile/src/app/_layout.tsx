@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react
 import NetInfo from '@react-native-community/netinfo';
 import { wireOutbox } from '@/lib/outbox';
 import { hasSeenOnboarding } from '@/lib/prefs';
+import { useHikeTracker } from '@/lib/hikeTracker';
 import { useSession } from '@/lib/stores';
 
 SplashScreen.preventAutoHideAsync();
@@ -22,6 +23,7 @@ export default function RootLayout() {
   const { ready, authed, init } = useSession();
   const segments = useSegments();
   const router = useRouter();
+  useHikeTracker(); // 등반 세션 ↔ 잠금화면 위젯/진행 알림 배선(유일 구독점)
 
   useEffect(() => {
     init();

@@ -13,3 +13,8 @@ export const markOnboardingSeen = () => store.set(K, true);
 const LAST_ACCOUNT = 'last_account_v1';
 export const lastAccount = () => store.getString(LAST_ACCOUNT);
 export const setLastAccount = (email: string) => store.set(LAST_ACCOUNT, email);
+
+// 등반 위젯: iOS '항상 허용' 업그레이드 안내를 1회만 노출(매 등반 나그하지 않게). 사용자가 선택권을 갖게 하는 규칙(2026-07-19).
+const ALWAYS_PROMPT = 'always_location_prompt_v1';
+export const hasSeenAlwaysPrompt = () => store.getBoolean(ALWAYS_PROMPT) ?? false;
+export const markAlwaysPromptSeen = () => store.set(ALWAYS_PROMPT, true);
