@@ -84,7 +84,7 @@ const MOUNTAINS = [
     courses: [
       { sourceId: 'v0-bhs-baegundae', target: [126.9780, 37.6590], trailhead: [126.9887, 37.6633] }, // 백운대
       { sourceId: 'v0-bhs-sanseong', target: [126.9780, 37.6590], trailhead: [126.9430, 37.6580] },  // 백운대(산성 서측)
-      { sourceId: 'v0-bhs-bibong', target: [126.9560, 37.6300], trailhead: [126.9628, 37.6199] },     // 비봉(별봉)
+      { sourceId: 'v0-bhs-bibong', target: [126.95625, 37.62561], trailhead: [126.9628, 37.6199] },   // 비봉(실제 OSM peak 560m — 2026-07-20 재앵커, 구 target 126.956,37.63은 비봉서 489m 북 오설정)
     ],
   },
   {
