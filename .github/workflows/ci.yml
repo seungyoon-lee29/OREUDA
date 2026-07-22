@@ -37,4 +37,6 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
-      - run: node --test src/lib/colored.test.js src/lib/search.test.js src/lib/tiers.test.js src/lib/hikeStats.test.js
+      # glob 고정 — 파일을 나열하면 새 테스트가 CI에서 조용히 빠진다(실제로 courseProgress·hikeWidget·mountainSets 3개가 누락돼 있었음).
+      # 테스트가 소스(.ts)를 직접 import하므로 Node ≥22.18(타입 스트리핑 기본)이 필요하다.
+      - run: node --test 'src/lib/*.test.js'

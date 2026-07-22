@@ -1,51 +1,7 @@
 // mountainSets.ts 파생 로직 경계 검증 — node --test src/lib/mountainSets.test.js
-// ponytail: TS 컴파일러 없이 node --test 실행 — 로직을 여기 미러링. 실제 소스: mountainSets.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-const SETS = [
-  { name: '서울 5대 명산', mountains: ['북한산', '도봉산', '관악산', '수락산', '불암산'] },
-  { name: '도심 4산', mountains: ['북악산', '인왕산', '남산', '안산'] },
-  { name: '강남·동남 6산', mountains: ['관악산', '청계산', '우면산', '구룡산', '대모산', '일자산'] },
-  { name: '동부 능선', mountains: ['용마산', '아차산'] },
-  { name: '서부 3산', mountains: ['백련산', '봉산', '개화산'] },
-];
-
-function verifiedByMountain(climbs) {
-  const map = new Map();
-  for (const c of climbs) {
-    if (c.status !== 'verified' || !c.courseId || !c.mountain) continue;
-    const s = map.get(c.mountain.name) ?? new Set();
-    s.add(c.courseId);
-    map.set(c.mountain.name, s);
-  }
-  return map;
-}
-
-function conqueredMountains(catalog, byMountain) {
-  const out = new Set();
-  for (const m of catalog) {
-    if (m.courseCount > 0 && (byMountain.get(m.name)?.size ?? 0) >= m.courseCount) out.add(m.name);
-  }
-  return out;
-}
-
-function setProgress(set, conquered) {
-  return { done: set.mountains.filter((m) => conquered.has(m)).length, total: set.mountains.length };
-}
-
-function newlyAchieved(catalog, byMountain, added) {
-  const before = conqueredMountains(catalog, byMountain);
-  const after = new Map(byMountain);
-  after.set(added.mountainName, new Set(after.get(added.mountainName) ?? []).add(added.courseId));
-  const afterConquered = conqueredMountains(catalog, after);
-  const isComplete = (s, c) => setProgress(s, c).done === s.mountains.length;
-  return {
-    mountain:
-      afterConquered.has(added.mountainName) && !before.has(added.mountainName) ? added.mountainName : null,
-    sets: SETS.filter((s) => isComplete(s, afterConquered) && !isComplete(s, before)).map((s) => s.name),
-  };
-}
+import { SETS, verifiedByMountain, conqueredMountains, setProgress, newlyAchieved } from './mountainSets.ts';
 
 // ---- 픽스처: 용마산(코스 2) + 아차산(코스 1) = '동부 능선' 세트 ----
 const CATALOG = [

@@ -1,7 +1,7 @@
 // 코스 경로 투영 — 내 GPS 위치를 코스 polyline에 투영해 경로상 진행/잔여 거리를 낸다.
 // GPS 궤적 누적이 아니라 "지금 경로의 어디쯤"이라 노이즈·역주행에 강하다(위젯 스펙 확정 2026-07-19).
 // 서버 판정과 무관한 표시 전용 계산 — 인증은 기존 앱 플로우 그대로(03 관대 판정 불변).
-import { haversineM } from './geo';
+import { haversineM } from './geo.ts';
 
 const R = 6371000;
 const DEG_M = (Math.PI / 180) * R; // 위도 1도당 미터(≈111195). 경도는 ×cos(lat)
