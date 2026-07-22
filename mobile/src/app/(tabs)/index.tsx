@@ -72,7 +72,7 @@ export default function MapScreen() {
     staleTime: Infinity,
   });
 
-  const { data: mountain } = useQuery({
+  const { data: mountain, isError: mountainError, refetch: refetchMountain } = useQuery({
     queryKey: ['mountain', selectedMountainId],
     queryFn: async () => {
       const m = MountainSchema.parse(await api(`/mountains/${selectedMountainId}`));
@@ -517,7 +517,7 @@ export default function MapScreen() {
             activeOpacity={0.85}
             onPress={() => refetchCourses()}
             accessibilityRole="button"
-            accessibilityLabel="코스 다시 불러오기"
+            accessibilityLabel="지도 코스 다시 불러오기"
           >
             <Text style={s.errorPillText}>코스를 불러오지 못했어요 · 다시 시도</Text>
           </TouchableOpacity>
@@ -587,7 +587,22 @@ export default function MapScreen() {
               <Text style={s.meta}>
                 {sheetHeader.region ?? ''} {sheetHeader.elevationM ? `· ${sheetHeader.elevationM}m` : ''}
               </Text>
-              {!mountain && <Text style={s.meta}>코스 불러오는 중…</Text>}
+              {/* 상세 실패 시 영구 '불러오는 중' 고착 방지 — L5 pill 동형 재시도(산중 전파 불안정 대비) */}
+              {/* ponytail: 캐시된 mountain이 있는 산의 백그라운드 refetch 실패는 침묵 — 옛 코스 목록이 에러 pill보다 낫다 */}
+              {!mountain &&
+                (mountainError ? (
+                  <TouchableOpacity
+                    style={[s.errorPill, s.sheetErrorPill]}
+                    activeOpacity={0.85}
+                    onPress={() => refetchMountain()}
+                    accessibilityRole="button"
+                    accessibilityLabel="이 산의 코스 다시 불러오기"
+                  >
+                    <Text style={s.errorPillText}>코스를 불러오지 못했어요 · 다시 시도</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={s.meta}>코스 불러오는 중…</Text>
+                ))}
               {(mountain?.courses ?? []).map((c) => {
                 const isSelected = c.id === selectedCourseId;
                 const isVerified = verified.has(c.id);
@@ -804,6 +819,7 @@ const s = StyleSheet.create({
     paddingVertical: SP.sm,
   },
   errorPillText: { color: C.dangerText, fontSize: 14, fontWeight: '500' },
+  sheetErrorPill: { alignSelf: 'flex-start', marginTop: SP.sm }, // 시트 안에선 절대배치 wrap 없이 인라인
   // rank15: 빈 상태 추천 카드 — glass 80% granite + 1px 보더 + 그림자 제거(플랫 원칙)
   recWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
   recCard: {
