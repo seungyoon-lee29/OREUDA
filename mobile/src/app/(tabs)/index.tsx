@@ -24,6 +24,7 @@ import {
   mountainMarkerStyle,
   useActiveHike,
   useMeClimbs,
+  useMountains,
   usePendingSet,
   useVerifiedSet,
 } from '@/lib/colored';
@@ -80,6 +81,12 @@ export default function MapScreen() {
     },
     enabled: !!selectedMountainId,
   });
+
+  // 시트 헤더는 상세 쿼리를 기다리지 않는다 — 카탈로그(staleTime Infinity, 이미 캐시됨)에 name/region/elevationM이 다 있다.
+  // 없으면 타 산 코스를 고를 때 mountain이 undefined인 동안 시트 전체가 '불러오는 중…' 한 줄로 붕괴했다가 다시 펴져 플리커.
+  const { data: mountainsList } = useMountains();
+  const sheetHeader =
+    mountain ?? mountainsList?.find((m) => m.id === selectedMountainId);
 
   const pending = usePendingSet();
   const verified = useVerifiedSet();
@@ -574,13 +581,14 @@ export default function MapScreen() {
         }}
       >
         <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + TABBAR_CLEARANCE }]}>
-          {mountain ? (
+          {sheetHeader ? (
             <>
-              <Text style={s.name}>{mountain.name}</Text>
+              <Text style={s.name}>{sheetHeader.name}</Text>
               <Text style={s.meta}>
-                {mountain.region ?? ''} {mountain.elevationM ? `· ${mountain.elevationM}m` : ''}
+                {sheetHeader.region ?? ''} {sheetHeader.elevationM ? `· ${sheetHeader.elevationM}m` : ''}
               </Text>
-              {mountain.courses.map((c) => {
+              {!mountain && <Text style={s.meta}>코스 불러오는 중…</Text>}
+              {(mountain?.courses ?? []).map((c) => {
                 const isSelected = c.id === selectedCourseId;
                 const isVerified = verified.has(c.id);
                 const isPending = pending.has(c.id);
@@ -634,14 +642,14 @@ export default function MapScreen() {
                   if (selectedIsActive) {
                     router.push({
                       pathname: '/capture',
-                      params: { mountainId: mountain.id, courseId: selectedCourse.id },
+                      params: { mountainId: selectedCourse.mountainId, courseId: selectedCourse.id },
                     });
                     return;
                   }
                   const begin = () => {
                     startHike({
                       courseId: selectedCourse.id,
-                      mountainId: mountain.id,
+                      mountainId: selectedCourse.mountainId,
                       courseName: selectedCourse.name,
                     });
                     sheetRef.current?.close();
