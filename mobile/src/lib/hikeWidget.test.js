@@ -1,44 +1,7 @@
 // hikeWidget.ts 위젯 표시 상태 경계 검증 — node --test src/lib/hikeWidget.test.js
-// ponytail: TS 컴파일 없이 실행하려 로직 미러링. 실제 소스: hikeWidget.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-const KST_OFFSET_MS = 9 * 3_600_000;
-const MAX_ETA_MS = 16 * 3_600_000;
-const MIN_PROGRESS_FOR_ETA_M = 50;
-const DEFAULT_ARRIVE_M = 30;
-
-const elapsedLabel = (min) => {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return h > 0 ? `${h}시간 ${m}분` : `${m}분`;
-};
-const kstClock = (ms) => {
-  const d = new Date(ms + KST_OFFSET_MS);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-};
-const formatHikeWidget = (input) => {
-  const { progress } = input;
-  const elapsedMs = Math.max(0, input.nowMs - input.startedAtMs);
-  const elapsedMin = Math.floor(elapsedMs / 60_000);
-  const arriveRadiusM = input.arriveRadiusM ?? DEFAULT_ARRIVE_M;
-  const arrived = progress.remainingM <= arriveRadiusM || progress.fraction >= 0.999;
-  let etaLabel = null;
-  if (!arrived && progress.progressM >= MIN_PROGRESS_FOR_ETA_M && elapsedMs > 0) {
-    const remainingMs = elapsedMs * (progress.remainingM / progress.progressM);
-    if (remainingMs <= MAX_ETA_MS) etaLabel = kstClock(input.nowMs + remainingMs);
-  }
-  return {
-    elapsedMin,
-    elapsedLabel: elapsedLabel(elapsedMin),
-    doneKm: (progress.progressM / 1000).toFixed(1),
-    remainingKm: (progress.remainingM / 1000).toFixed(1),
-    progressPct: Math.max(0, Math.min(100, Math.round(progress.fraction * 100))),
-    etaLabel,
-    altitudeLabel: input.altitude != null ? `${Math.round(input.altitude)}m` : null,
-    arrived,
-  };
-};
+import { formatHikeWidget } from './hikeWidget.ts';
 
 const prog = (o) => ({ fraction: 0.5, progressM: 1500, remainingM: 1500, totalM: 3000, offCourseM: 0, ...o });
 const START = Date.parse('2026-07-19T00:00:00.000Z'); // KST 09:00

@@ -1,57 +1,11 @@
 // courseProgress.ts 경로 투영 경계 검증 — node --test src/lib/courseProgress.test.js
-// ponytail: TS 컴파일 없이 실행하려 로직 미러링. 실제 소스: courseProgress.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { buildCoursePath, projectOnCourse } from './courseProgress.ts';
 
+// R/DEG_M: 소스와 별개로 기대값(offCourseM) 직접 계산용 테스트 픽스처 — SUT 아님.
 const R = 6371000;
 const DEG_M = (Math.PI / 180) * R;
-const haversineM = (lat1, lng1, lat2, lng2) => {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-};
-
-const buildCoursePath = (coords, officialTotalM) => {
-  if (!coords || coords.length < 2) return null;
-  const cum = [0];
-  for (let i = 1; i < coords.length; i++) {
-    const [aLng, aLat] = coords[i - 1];
-    const [bLng, bLat] = coords[i];
-    cum.push(cum[i - 1] + haversineM(aLat, aLng, bLat, bLng));
-  }
-  const geomTotalM = cum[cum.length - 1];
-  if (geomTotalM <= 0) return null;
-  const totalM = officialTotalM && officialTotalM > 0 ? officialTotalM : geomTotalM;
-  return { coords, cum, geomTotalM, totalM };
-};
-
-const projectOnCourse = (idx, lat, lng) => {
-  let best = { off2: Infinity, progressGeom: 0 };
-  for (let i = 1; i < idx.coords.length; i++) {
-    const [aLng, aLat] = idx.coords[i - 1];
-    const [bLng, bLat] = idx.coords[i];
-    const kx = DEG_M * Math.cos((aLat * Math.PI) / 180);
-    const bx = (bLng - aLng) * kx;
-    const by = (bLat - aLat) * DEG_M;
-    const px = (lng - aLng) * kx;
-    const py = (lat - aLat) * DEG_M;
-    const segLen2 = bx * bx + by * by;
-    const t = segLen2 > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / segLen2)) : 0;
-    const dx = px - t * bx;
-    const dy = py - t * by;
-    const off2 = dx * dx + dy * dy;
-    if (off2 < best.off2) {
-      const segM = idx.cum[i] - idx.cum[i - 1];
-      best = { off2, progressGeom: idx.cum[i - 1] + t * segM };
-    }
-  }
-  const fraction = Math.max(0, Math.min(1, best.progressGeom / idx.geomTotalM));
-  const progressM = idx.totalM * fraction;
-  return { fraction, progressM, remainingM: idx.totalM - progressM, totalM: idx.totalM, offCourseM: Math.sqrt(best.off2) };
-};
 
 // 정북 직선 코스: [lng,lat] 세 정점, 각 0.01도(≈1112m), 총 ≈2224m
 const LINE = [

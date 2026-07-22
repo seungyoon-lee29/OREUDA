@@ -1,4 +1,4 @@
-// search 순수 함수 최소 체크 — node --test src/app/search.test.js
+// search 순수 함수 최소 체크 — node --test src/lib/search.test.js
 // RN import 없이 로직만 검증 (search.tsx의 filterMountains/groupByRegion 동등 구현)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

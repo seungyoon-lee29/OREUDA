@@ -1,19 +1,7 @@
 // tiers.ts 등급 경계 검증 — node --test src/lib/tiers.test.js
-// ponytail: TS 컴파일러 없이 node --test 실행 — 로직을 여기 미러링. 실제 소스: tiers.ts (TIERS/tierFor/nextTier/hasAllClear)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-const TIERS = [
-  { min: 0, name: '새내기' },
-  { min: 3, name: '등산 입문' },
-  { min: 10, name: '산꾼' },
-  { min: 25, name: '산악인' },
-  { min: 50, name: '완등왕' },
-];
-const SUMMIT_GOAL = TIERS[TIERS.length - 1].min;
-const tierFor = (done) => { let t = TIERS[0]; for (const x of TIERS) if (done >= x.min) t = x; return t; };
-const nextTier = (done) => TIERS.find((t) => t.min > done) ?? null;
-const hasAllClear = (done) => done >= SUMMIT_GOAL;
+import { SUMMIT_GOAL, tierFor, nextTier, hasAllClear } from './tiers.ts';
 
 test('tierFor 경계 — 각 마일스톤 직전/직후', () => {
   assert.equal(tierFor(0).name, '새내기');

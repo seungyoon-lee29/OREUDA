@@ -1,39 +1,7 @@
 // hikeStats.ts 운동요약 계산 경계 검증 — node --test src/lib/hikeStats.test.js
-// ponytail: TS 컴파일러 없이 node --test 실행 — 로직을 여기 미러링. 실제 소스: hikeStats.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-
-const ASSUMED_WEIGHT_KG = 65;
-const MAX_HIKE_MS = 16 * 3_600_000;
-
-const hikingMet = (speedKmh, gradientPct) => {
-  const s = speedKmh ?? 4;
-  const base = s < 3.2 ? 2.8 : s < 4.8 ? 3.5 : s < 5.6 ? 4.3 : s < 6.4 ? 5.0 : 6.0;
-  const gradeBump = gradientPct == null ? 1.5 : Math.min(gradientPct, 30) * 0.15;
-  return base + gradeBump;
-};
-
-const computeHikeSummary = (input) => {
-  const durationMs = input.endedAtMs - Date.parse(input.startedAt);
-  if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
-  if (durationMs > MAX_HIKE_MS) return null;
-  const durationMin = Math.round(durationMs / 60_000);
-  const hours = durationMs / 3_600_000;
-  const distanceM = input.distanceM;
-  const rawSpeed = distanceM != null && distanceM > 0 ? distanceM / 1000 / hours : null;
-  const avgSpeedKmh = rawSpeed != null && rawSpeed <= 12 ? Math.round(rawSpeed * 10) / 10 : null;
-  const ascentM =
-    input.startAltitude != null && input.endAltitude != null
-      ? Math.max(0, Math.round(input.endAltitude - input.startAltitude))
-      : null;
-  const gradientPct =
-    ascentM != null && distanceM != null && distanceM > 0
-      ? Math.round((ascentM / distanceM) * 100 * 10) / 10
-      : null;
-  const met = hikingMet(avgSpeedKmh, gradientPct);
-  const calories = Math.round(met * (input.weightKg ?? ASSUMED_WEIGHT_KG) * hours);
-  return { durationMin, distanceM, avgSpeedKmh, ascentM, gradientPct, calories };
-};
+import { hikingMet, computeHikeSummary } from './hikeStats.ts';
 
 const base = {
   startedAt: '2026-07-14T00:00:00.000Z',
