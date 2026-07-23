@@ -7,7 +7,7 @@ import {
   NaverMapPolylineOverlay,
   type NaverMapViewRef,
 } from '@mj-studio/react-native-naver-map';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetFooter, type BottomSheetFooterProps, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
@@ -94,6 +94,14 @@ export default function MapScreen() {
   const markerTier = { tierColor: tierFor(verified.size).color, max: hasAllClear(verified.size) };
   const activeHike = useActiveHike();
 
+  // 진행 시작 시 네이버 자체 위치추적을 끈다 — 브라우징 중 위치버튼을 눌러 Follow/Face가
+  // 켜진 상태로 등반에 진입하면 카메라가 GPS를 따라다녀 드래그와 싸운다(실기기 QA). 표시는 커스텀 화살표.
+  // 앱 재실행 시 이미 진행 중인 등반이면 mapRef가 아직 null일 수 있으나, 그 경우 SDK 추적모드는
+  // 기본값 None(이번 세션에 버튼을 누른 적 없음)이라 놓쳐도 안전. 상시 방어는 isShowLocationButton={!activeHike}.
+  useEffect(() => {
+    if (activeHike) mapRef.current?.setLocationTrackingMode('None');
+  }, [activeHike]);
+
   // 등반 중이면 30s마다 경과시간 갱신 (상단 배너 표시용)
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -127,8 +135,36 @@ export default function MapScreen() {
   // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
   // ponytail: 이 watch는 포그라운드 전용 — 앱 백그라운드 시 iOS가 자동 중단. 잠금화면 위젯/알림의 백그라운드 갱신은 hikeTracker.ts 태스크가 담당.
   const [distM, setDistM] = useState<number | null>(null);
-  const [myPos, setMyPos] = useState<{ lat: number; lng: number; heading: number } | null>(null);
+  const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
+  // 나침반(자기장) 방위 — 화살표 회전용. coords.heading은 '이동 방향'이라 제자리 회전을 못 잡고
+  // 멈추면 −1이 된다(실기기 QA 2026-07-22). 나침반은 '바라보는 방향'이라 몸만 돌려도 갱신된다.
+  const [compassHeading, setCompassHeading] = useState<number | null>(null);
+  useEffect(() => {
+    if (!activeHike || !activeCheckpoint) return; // 화살표가 그려질 때만(myPos=activeCheckpoint 의존) 나침반 구독 — 소비자 없으면 배터리 낭비
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted' || cancelled) return;
+      const s = await Location.watchHeadingAsync(
+        (h) => {
+          // trueHeading은 위치권한 있을 때만(없으면 −1) → 폴백 magHeading.
+          // h.accuracy는 미터가 아니라 나침반 캘리브레이션 레벨(0=없음~3=높음). 미보정(<1) 값은 버림.
+          const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+          if (h.accuracy >= 1 && deg >= 0) setCompassHeading(deg);
+        },
+        () => setCompassHeading(null), // 센서 이상/구독 실패 → 북쪽 고정 폴백(화살표 angle ?? 0)
+      );
+      if (cancelled) s.remove();
+      else sub = s;
+    })();
+    return () => {
+      cancelled = true;
+      sub?.remove();
+      setCompassHeading(null);
+    };
+  }, [activeHike, activeCheckpoint, locGranted]);
   useEffect(() => {
     if (!activeHike || !activeCheckpoint) return; // distM/myPos 정리는 아래 cleanup이 담당(중복 제거)
     let sub: Location.LocationSubscription | null = null;
@@ -139,7 +175,7 @@ export default function MapScreen() {
       const s = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
         (loc) => {
-          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? -1 });
+          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude });
           setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
           // 첫 fix 고도를 시작 고도로 기록 → 완등 시 정상 고도와의 델타로 평균 경사도 산출(setter가 1회만 반영).
           if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
@@ -308,6 +344,78 @@ export default function MapScreen() {
   const selectedCourse = mountain?.courses.find((c) => c.id === selectedCourseId) ?? null;
   const selectedIsActive = !!selectedCourse && activeHike?.courseId === selectedCourse.id;
 
+  // CTA 핸들러 — 시트 하단 고정 푸터(BottomSheetFooter)에서 호출. 선택 코스가 진행 중이면 완등 인증,
+  // 아니면 등반 시작(진행 중 세션 있으면 확인 Alert). 스크롤 위치와 무관하게 항상 노출(실기기 QA: 탭바에 가림).
+  const onCapturePress = useCallback(() => {
+    if (!selectedCourse) return;
+    if (selectedIsActive) {
+      router.push({
+        pathname: '/capture',
+        params: { mountainId: selectedCourse.mountainId, courseId: selectedCourse.id },
+      });
+      return;
+    }
+    const begin = () => {
+      startHike({
+        courseId: selectedCourse.id,
+        mountainId: selectedCourse.mountainId,
+        courseName: selectedCourse.name,
+      });
+      sheetRef.current?.close();
+      // 등반 시작 = 명시적 위치 액션 → 이 시점 권한 요청(콜드 아님). 허용되면 watch 재가동.
+      Location.requestForegroundPermissionsAsync()
+        .then((p) => {
+          setLocGranted(p.granted);
+          // 시작(들머리) 고도 원샷 캡처 → 완등 시 정상 고도와의 델타로 평균 경사도.
+          // 포그라운드 워치 첫 fix(백업)보다 신뢰 — 폰을 주머니에 넣어 앱이 백그라운드여도 여기서 잡힘.
+          if (p.granted)
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
+              .then((loc) => {
+                if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
+              })
+              .catch(() => {});
+        })
+        .catch(() => {});
+    };
+    // M3: startHike는 INSERT OR REPLACE(단일행) — 무확인이면 진행 중 세션(경과시간·시작고도) 소리 없이 소멸
+    if (activeHike) {
+      Alert.alert('진행 중인 등반이 있어요', '종료하고 새로 시작할까요?', [
+        { text: '취소', style: 'cancel' },
+        { text: '새로 시작', style: 'destructive', onPress: begin },
+      ]);
+    } else {
+      begin();
+    }
+  }, [selectedCourse, selectedIsActive, activeHike, router]);
+
+  // 시트 하단 고정 CTA 푸터 — 스크롤 콘텐츠 밖. 시트가 bottomInset으로 탭바 위에 떠 있어 항상 보인다.
+  const ctaLabel = !selectedCourse
+    ? '코스를 선택하세요'
+    : selectedIsActive
+    ? `${selectedCourse.name} 완등 인증하기`
+    : `${selectedCourse.name} 등반 시작`;
+  const renderFooter = useCallback(
+    (props: BottomSheetFooterProps) =>
+      sheetHeader ? (
+        <BottomSheetFooter {...props}>
+          <View style={s.footerWrap}>
+            <TouchableOpacity
+              style={[s.captureBtn, s.footerCaptureBtn, !selectedCourse && s.captureBtnDisabled]}
+              disabled={!selectedCourse}
+              onPress={onCapturePress}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !selectedCourse }}
+              accessibilityLabel={ctaLabel}
+            >
+              {/* numberOfLines=1: 긴 코스명/큰 폰트에도 푸터 높이 고정 → 스크롤 paddingBottom(92) 초과 방지 */}
+              <Text style={s.captureBtnText} numberOfLines={1}>{ctaLabel}</Text>
+            </TouchableOpacity>
+          </View>
+        </BottomSheetFooter>
+      ) : null,
+    [sheetHeader, selectedCourse, ctaLabel, onCapturePress],
+  );
+
   // 코스선 노출 집합: 완등·대기 코스는 항상(누적 채색 = 핵심 가치) + 선택된 산의 코스 + 진행 중 등반 코스.
   // 미완등 코스만 "산을 탭해야 보인다"를 유지.
   const visibleCourses = useMemo(
@@ -342,7 +450,10 @@ export default function MapScreen() {
         isNightModeEnabled
         lightness={-0.1}
         layerGroups={{ BUILDING: true, TRAFFIC: false, TRANSIT: false, BICYCLE: false, MOUNTAIN: false, CADASTRAL: false }}
-        isShowLocationButton
+        // 진행 중엔 네이버 기본 위치버튼을 숨긴다 — 이 버튼은 앱의 myPos가 아니라 SDK 자체 위치원을
+        // 추적(Follow/Face)하는데, 실기기 이동 중 그 추적이 수동 드래그와 싸워 지도가 안 움직였다
+        // (실기기 QA 2026-07-22, 줌 버튼만 됨). 진행 중 위치 이동은 커스텀 FAB이 담당. 브라우징 땐 유지.
+        isShowLocationButton={!activeHike}
         onCameraChanged={({ latitude, longitude, zoom }) => {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
@@ -419,7 +530,7 @@ export default function MapScreen() {
             }}
           />
         )}
-        {/* 등반 중 내 위치 — 큰 내비 화살표(heading 방향 회전, 정적이면 위쪽). 작은 점 대신. */}
+        {/* 등반 중 내 위치 — 큰 내비 화살표(나침반=바라보는 방향으로 회전, 없으면 위쪽). 작은 점 대신. */}
         {activeHike && myPos && (
           <NaverMapMarkerOverlay
             latitude={myPos.lat}
@@ -427,7 +538,7 @@ export default function MapScreen() {
             width={40}
             height={40}
             anchor={{ x: 0.5, y: 0.5 }}
-            angle={myPos.heading >= 0 ? myPos.heading : 0}
+            angle={compassHeading ?? 0}
             image={require('../../../assets/images/nav-arrow.png')}
           />
         )}
@@ -571,8 +682,11 @@ export default function MapScreen() {
         index={-1}
         snapPoints={['45%']}
         enablePanDownToClose
+        // 시트 전체를 탭바 위로 띄운다 → 고정 CTA 푸터가 탭바에 안 가리고 시트 실제 하단에 붙는다(실기기 QA).
+        bottomInset={insets.bottom + TABBAR_CLEARANCE}
         backgroundStyle={{ backgroundColor: C.surface }}
         handleIndicatorStyle={{ backgroundColor: C.border }}
+        footerComponent={renderFooter}
         // 시트 닫힘 = 산 선택 해제 → 코스선도 숨김("산을 탭해야 코스가 보인다"). 캐시는 react-query가 보존.
         // 진행 중 등반 코스선은 activeHike 파생이라 여기서 안 사라짐.
         onClose={() => {
@@ -580,7 +694,8 @@ export default function MapScreen() {
           setSelectedMountainId(null);
         }}
       >
-        <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + TABBAR_CLEARANCE }]}>
+        {/* 시트가 bottomInset으로 탭바 위에 떠 있으니 여긴 고정 푸터 높이(~92)만 확보 — 마지막 행이 푸터 뒤로 안 가리게 */}
+        <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: 92 }]}>
           {sheetHeader ? (
             <>
               <Text style={s.name}>{sheetHeader.name}</Text>
@@ -648,60 +763,7 @@ export default function MapScreen() {
                   </TouchableOpacity>
                 );
               })}
-              {/* 코스를 골라 '등반 시작' → 상단 배너로 진행. 이미 진행 중인 코스면 '완등 인증'으로 전환. */}
-              <TouchableOpacity
-                style={[s.captureBtn, !selectedCourse && s.captureBtnDisabled]}
-                disabled={!selectedCourse}
-                onPress={() => {
-                  if (!selectedCourse) return;
-                  if (selectedIsActive) {
-                    router.push({
-                      pathname: '/capture',
-                      params: { mountainId: selectedCourse.mountainId, courseId: selectedCourse.id },
-                    });
-                    return;
-                  }
-                  const begin = () => {
-                    startHike({
-                      courseId: selectedCourse.id,
-                      mountainId: selectedCourse.mountainId,
-                      courseName: selectedCourse.name,
-                    });
-                    sheetRef.current?.close();
-                    // 등반 시작 = 명시적 위치 액션 → 이 시점 권한 요청(콜드 아님). 허용되면 watch 재가동.
-                    Location.requestForegroundPermissionsAsync()
-                      .then((p) => {
-                        setLocGranted(p.granted);
-                        // 시작(들머리) 고도 원샷 캡처 → 완등 시 정상 고도와의 델타로 평균 경사도.
-                        // 포그라운드 워치 첫 fix(백업)보다 신뢰 — 폰을 주머니에 넣어 앱이 백그라운드여도 여기서 잡힘.
-                        if (p.granted)
-                          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation })
-                            .then((loc) => {
-                              if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
-                            })
-                            .catch(() => {});
-                      })
-                      .catch(() => {});
-                  };
-                  // M3: startHike는 INSERT OR REPLACE(단일행) — 무확인이면 진행 중 세션(경과시간·시작고도) 소리 없이 소멸
-                  if (activeHike) {
-                    Alert.alert('진행 중인 등반이 있어요', '종료하고 새로 시작할까요?', [
-                      { text: '취소', style: 'cancel' },
-                      { text: '새로 시작', style: 'destructive', onPress: begin },
-                    ]);
-                  } else {
-                    begin();
-                  }
-                }}
-              >
-                <Text style={s.captureBtnText}>
-                  {!selectedCourse
-                    ? '코스를 선택하세요'
-                    : selectedIsActive
-                    ? `${selectedCourse.name} 완등 인증하기`
-                    : `${selectedCourse.name} 등반 시작`}
-                </Text>
-              </TouchableOpacity>
+              {/* CTA는 스크롤 밖 고정 푸터(renderFooter)로 이동 — 탭바에 가리던 문제 해소(실기기 QA). */}
             </>
           ) : (
             <Text style={s.meta}>불러오는 중…</Text>
@@ -766,6 +828,16 @@ const s = StyleSheet.create({
   },
   captureBtnText: { color: C.onBrand, fontSize: 17, fontWeight: '700' },
   captureBtnDisabled: { opacity: 0.4 },
+  // 고정 CTA 푸터 바 — 시트 배경과 동색 불투명(뒤 코스 행 비침 방지) + 상단 헤어라인. 버튼 marginTop 상쇄.
+  footerWrap: {
+    paddingHorizontal: SP.xl,
+    paddingTop: SP.sm,
+    paddingBottom: SP.xs,
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  footerCaptureBtn: { marginTop: 0 },
   // 등반 중 상단 배너 — success 좌보더 강조 + granite glass. 검색 pill 자리를 대체.
   hikeBarWrap: { position: 'absolute', left: 0, right: 0, paddingHorizontal: SP.lg },
   hikeCard: {

@@ -77,8 +77,10 @@ export default function Search() {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={s.row}
+            // dismissTo = 이 검색 모달을 닫으며 지도(/)로 복귀. navigate는 모달을 안 닫고
+            // 밑 탭으로만 이동해 화면이 중복 스택으로 쌓였다(실기기 QA 2026-07-22).
             onPress={() =>
-              router.navigate({ pathname: '/', params: { focusMountainId: item.id } })
+              router.dismissTo({ pathname: '/', params: { focusMountainId: item.id } })
             }
           >
             <View style={s.rowMain}>
