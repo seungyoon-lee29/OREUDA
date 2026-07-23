@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   NaverMapView,
   NaverMapMarkerOverlay,
@@ -59,6 +59,8 @@ export default function MapScreen() {
   const mapRef = useRef<NaverMapViewRef>(null);
   // P0-4 수신 중복 방지 + 비동기 courseId 선택 대기 (mountain 쿼리 완료 후 처리)
   const pendingCourseRef = useRef<string | null>(null);
+  // 코스 미지정 포커스(검색): 상세 로드 후 그 산 정상으로 카메라 이동할 대상 id (카탈로그 로딩 레이스 대비)
+  const focusSummitRef = useRef<string | null>(null);
 
   const bbox = useMemo(() => tileToBboxWithMargin(FETCH_TILE_Z, tile.x, tile.y), [tile]);
 
@@ -94,10 +96,9 @@ export default function MapScreen() {
   const markerTier = { tierColor: tierFor(verified.size).color, max: hasAllClear(verified.size) };
   const activeHike = useActiveHike();
 
-  // 진행 시작 시 네이버 자체 위치추적을 끈다 — 브라우징 중 위치버튼을 눌러 Follow/Face가
-  // 켜진 상태로 등반에 진입하면 카메라가 GPS를 따라다녀 드래그와 싸운다(실기기 QA). 표시는 커스텀 화살표.
-  // 앱 재실행 시 이미 진행 중인 등반이면 mapRef가 아직 null일 수 있으나, 그 경우 SDK 추적모드는
-  // 기본값 None(이번 세션에 버튼을 누른 적 없음)이라 놓쳐도 안전. 상시 방어는 isShowLocationButton={!activeHike}.
+  // 진행 시작 시 네이버 자체 위치추적을 끈다(방어) — SDK 추적(Follow/Face)이 켜지면 카메라가 GPS를
+  // 따라다녀 드래그와 싸운다(실기기 QA). 이제 isShowLocationButton=false라 사용자가 켤 경로는 없지만,
+  // SDK가 자체 엔게이지하는 경우를 대비한 상시 None 고정. 위치 표시는 locationOverlay/화살표 마커가 담당.
   useEffect(() => {
     if (activeHike) mapRef.current?.setLocationTrackingMode('None');
   }, [activeHike]);
@@ -132,11 +133,10 @@ export default function MapScreen() {
     };
   }, [activeHike]);
 
-  // 정상까지 실시간 남은 거리(포그라운드 폴링). 이미 권한 허용된 경우만 — 콜드 프롬프트 금지(05 §3).
-  // ponytail: 이 watch는 포그라운드 전용 — 앱 백그라운드 시 iOS가 자동 중단. 잠금화면 위젯/알림의 백그라운드 갱신은 hikeTracker.ts 태스크가 담당.
-  const [distM, setDistM] = useState<number | null>(null);
+  // 내 위치(포그라운드 폴링) — 브라우징·등반 공통. 이미 권한 허용된 경우만 자동 시작 — 콜드 프롬프트 금지(05 §3).
+  // 미허용이면 우하단 FAB 탭이 명시적 요청. 포그라운드 전용(백그라운드는 iOS가 중단; 잠금화면 갱신은 hikeTracker.ts).
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [locGranted, setLocGranted] = useState<boolean | null>(null); // 등반 시작 권한 요청 결과 → watch 재가동 트리거
+  const [locGranted, setLocGranted] = useState<boolean | null>(null); // 위치 권한 요청 결과 → watch 재가동 트리거(FAB/등반 시작)
   // 나침반(자기장) 방위 — 화살표 회전용. coords.heading은 '이동 방향'이라 제자리 회전을 못 잡고
   // 멈추면 −1이 된다(실기기 QA 2026-07-22). 나침반은 '바라보는 방향'이라 몸만 돌려도 갱신된다.
   const [compassHeading, setCompassHeading] = useState<number | null>(null);
@@ -165,34 +165,30 @@ export default function MapScreen() {
       setCompassHeading(null);
     };
   }, [activeHike, activeCheckpoint, locGranted]);
-  useEffect(() => {
-    if (!activeHike || !activeCheckpoint) return; // distM/myPos 정리는 아래 cleanup이 담당(중복 제거)
-    let sub: Location.LocationSubscription | null = null;
-    let cancelled = false;
-    (async () => {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== 'granted' || cancelled) return;
-      const s = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
-        (loc) => {
-          setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-          setDistM(haversineM(loc.coords.latitude, loc.coords.longitude, activeCheckpoint.lat, activeCheckpoint.lng));
-          // 첫 fix 고도를 시작 고도로 기록 → 완등 시 정상 고도와의 델타로 평균 경사도 산출(setter가 1회만 반영).
-          if (loc.coords.altitude != null) setHikeStartAltitude(loc.coords.altitude);
-        },
-      );
-      // watch가 resolve되는 await 창 사이에 정리(등반 종료 등)가 돌면 sub이 아직 null → 누수.
-      // resolve 후 재확인해 self-remove — 이 포그라운드 watch의 수명 관리(백그라운드 태스크는 별개).
-      if (cancelled) s.remove();
-      else sub = s;
-    })();
-    return () => {
-      cancelled = true;
-      sub?.remove();
-      setDistM(null);
-      setMyPos(null);
-    };
-  }, [activeHike, activeCheckpoint, locGranted]);
+  // 내 위치 워치는 지도 화면이 '포커스'일 때만 — useFocusEffect가 다른 탭(기록/프로필)으로 가면 blur에서 구독 해제.
+  // 네이티브 탭바는 화면을 언마운트 안 해 useEffect면 딴 탭에서도 GPS를 계속 폴링(배터리·프라이버시). blur 미발화 환경에선
+  // 마운트/언마운트로 degrade(회귀 없음). 시작 고도는 여기서 안 잡는다 — onCapturePress가 등반 시작 시 원샷 캡처(중복 제거).
+  useFocusEffect(
+    useCallback(() => {
+      let sub: Location.LocationSubscription | null = null;
+      let cancelled = false;
+      (async () => {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const s = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, distanceInterval: 20, timeInterval: 5000 },
+          (loc) => setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude }),
+        );
+        // watch resolve 대기 창 사이에 정리(blur 등)가 돌면 sub이 아직 null → 누수. resolve 후 재확인해 self-remove.
+        if (cancelled) s.remove();
+        else sub = s;
+      })();
+      return () => {
+        cancelled = true;
+        sub?.remove();
+      };
+    }, [locGranted]),
+  );
 
   // 등반 시작 시 내 위치 ↔ 정상이 한눈에 들어오게 카메라 1회 맞춤(등반당 1회, 이후 사용자 조작 존중).
   const fittedHikeRef = useRef<string | null>(null);
@@ -210,6 +206,11 @@ export default function MapScreen() {
     });
   }, [activeHike, myPos, activeCheckpoint]);
 
+  // 정상까지 남은 거리 — 내 위치를 정상 좌표에 haversine. myPos·activeCheckpoint 파생(별도 워치 불필요).
+  const distM = useMemo(
+    () => (myPos && activeCheckpoint ? haversineM(myPos.lat, myPos.lng, activeCheckpoint.lat, activeCheckpoint.lng) : null),
+    [myPos, activeCheckpoint],
+  );
   const arrived = distM != null && !!activeCheckpoint && distM <= activeCheckpoint.radiusM;
   // 정상까지 남은 거리(지도 정상 마커·배너 공용). 반경 안이면 '도착'.
   const remainLabel = useMemo(() => {
@@ -322,16 +323,30 @@ export default function MapScreen() {
     // 네비 param 소비 = 시트 오픈(외부 이벤트 반응) + 아래 param 클리어 부수효과 → 이펙트가 정당. 룰 오탐.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     openMountain(focusMountainId);
+    // 검색 등 외부 포커스(코스 미지정)는 지도를 그 산 정상으로 이동(검색 QA 2026-07-23 — 이전엔 시트만 열림). 단,
+    // 카탈로그/상세가 로딩 중이면 좌표가 없어 스킵되는데, param을 바로 지우면 나중 로드 시 재발화가 early-return돼
+    // 이동이 영구 스킵된다(리뷰 HIGH). ref에 적어두고 상세(mountain) 로드 시 1회 처리(아래) — 레이스 무관.
+    // 코스까지 지정된 focus는 아래 selectCourse가 코스 bounds로 카메라를 맞추므로 여기선 건너뛴다.
+    if (!focusCourseId) focusSummitRef.current = focusMountainId;
     // 소비 즉시 param 클리어 — 같은 산을 다시 탭해도 param이 재세팅돼 effect 재발화(잔류 가드 시 무동작 방지)
     router.setParams({ focusMountainId: undefined, focusCourseId: undefined });
   }, [focusMountainId, focusCourseId, openMountain, router]);
 
-  // pendingCourseRef 처리: mountain 쿼리 완료 후 해당 코스 선택
+  // mountain(상세) 로드 시 처리: 코스 지정 focus면 그 코스 선택, 코스 미지정 focus면 그 산 정상으로 카메라 이동.
   useEffect(() => {
-    if (!pendingCourseRef.current || !mountain) return;
-    const c = mountain.courses.find((c) => c.id === pendingCourseRef.current);
-    if (c) selectCourse(c);
-    pendingCourseRef.current = null; // 미발견 포함 항상 클리어
+    if (!mountain) return;
+    if (pendingCourseRef.current) {
+      const c = mountain.courses.find((c) => c.id === pendingCourseRef.current);
+      if (c) selectCourse(c);
+      pendingCourseRef.current = null; // 미발견 포함 항상 클리어
+    } else if (focusSummitRef.current === mountain.id) {
+      focusSummitRef.current = null;
+      mapRef.current?.animateCameraTo({
+        latitude: mountain.summitPoint.coordinates[1],
+        longitude: mountain.summitPoint.coordinates[0],
+        zoom: Math.max(lastCam.current.zoom, 13),
+      });
+    }
   }, [mountain, selectCourse]);
 
   // 타일 이탈로 선택 코스가 courses에서 사라지면 선택 해제 —
@@ -388,7 +403,7 @@ export default function MapScreen() {
     }
   }, [selectedCourse, selectedIsActive, activeHike, router]);
 
-  // 시트 하단 고정 CTA 푸터 — 스크롤 콘텐츠 밖. 시트가 bottomInset으로 탭바 위에 떠 있어 항상 보인다.
+  // 시트 하단 고정 CTA 푸터 — 스크롤 콘텐츠 밖. 푸터 paddingBottom이 버튼을 플로팅 탭바 위로 올려 항상 보인다.
   const ctaLabel = !selectedCourse
     ? '코스를 선택하세요'
     : selectedIsActive
@@ -398,7 +413,8 @@ export default function MapScreen() {
     (props: BottomSheetFooterProps) =>
       sheetHeader ? (
         <BottomSheetFooter {...props}>
-          <View style={s.footerWrap}>
+          {/* 시트가 바닥에 밀착 → 푸터도 화면 바닥. paddingBottom으로 버튼을 플로팅 탭바 위로 올린다(배경은 탭바 뒤까지 채워 '떠 있는' 틈 제거). */}
+          <View style={[s.footerWrap, { paddingBottom: insets.bottom + TABBAR_CLEARANCE }]}>
             <TouchableOpacity
               style={[s.captureBtn, s.footerCaptureBtn, !selectedCourse && s.captureBtnDisabled]}
               disabled={!selectedCourse}
@@ -413,7 +429,7 @@ export default function MapScreen() {
           </View>
         </BottomSheetFooter>
       ) : null,
-    [sheetHeader, selectedCourse, ctaLabel, onCapturePress],
+    [sheetHeader, selectedCourse, ctaLabel, onCapturePress, insets.bottom],
   );
 
   // 코스선 노출 집합: 완등·대기 코스는 항상(누적 채색 = 핵심 가치) + 선택된 산의 코스 + 진행 중 등반 코스.
@@ -440,8 +456,7 @@ export default function MapScreen() {
   return (
     <View style={{ flex: 1 }}>
       {/* 다크 지도: Navi만이 야간 모드를 지원 (§3 근거 — NaverMapView.tsx L166-173).
-          lightness -0.1 → granite 쪽으로 살짝 침전, 오버레이는 그대로라 코스선 대비 상승.
-          P0-3: isShowLocationButton — JS prop. 탭이 트리거라 콜드 프롬프트 없음 (PM §P0-3). */}
+          lightness -0.1 → granite 쪽으로 살짝 침전, 오버레이는 그대로라 코스선 대비 상승. */}
       <NaverMapView
         ref={mapRef}
         style={{ flex: 1 }}
@@ -450,10 +465,17 @@ export default function MapScreen() {
         isNightModeEnabled
         lightness={-0.1}
         layerGroups={{ BUILDING: true, TRAFFIC: false, TRANSIT: false, BICYCLE: false, MOUNTAIN: false, CADASTRAL: false }}
-        // 진행 중엔 네이버 기본 위치버튼을 숨긴다 — 이 버튼은 앱의 myPos가 아니라 SDK 자체 위치원을
-        // 추적(Follow/Face)하는데, 실기기 이동 중 그 추적이 수동 드래그와 싸워 지도가 안 움직였다
-        // (실기기 QA 2026-07-22, 줌 버튼만 됨). 진행 중 위치 이동은 커스텀 FAB이 담당. 브라우징 땐 유지.
-        isShowLocationButton={!activeHike}
+        // 네이버 기본 위치버튼은 안 쓴다 — SDK 자체 위치원을 추적(Follow/Face)해 이동 중 수동 드래그와 싸웠다
+        // (실기기 QA 2026-07-22, 줌만 됨). 위치 표시는 아래 locationOverlay(브라우징)·화살표 마커(등반),
+        // 리센터는 우하단 커스텀 FAB — 전부 앱이 아는 myPos 기준이라 카메라와 안 싸운다.
+        isShowLocationButton={false}
+        // 브라우징 중 내 위치 점 — SDK 위치 오버레이에 myPos를 직접 먹인다(추적모드/위치원 무의존).
+        // 등반 중엔 방향 화살표 마커로 대체하므로 숨김.
+        locationOverlay={
+          !activeHike && myPos
+            ? { isVisible: true, position: { latitude: myPos.lat, longitude: myPos.lng } }
+            : { isVisible: false }
+        }
         onCameraChanged={({ latitude, longitude, zoom }) => {
           lastCam.current = { lat: latitude, lng: longitude, zoom: zoom ?? 11 };
         }}
@@ -654,24 +676,38 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* 등반 중 '내 위치로' FAB(우하단) — 앱이 추적하는 myPos(=지도의 내비 화살표)로 카메라 리센터.
-          ponytail: 네이티브 isShowLocationButton은 SDK 자체 위치원을 써 목표 myPos와 어긋난다 —
-          이 FAB는 화면의 그 화살표로 정확히 리센터하고 같은 아이콘으로 "이 버튼=저 화살표"를 잇는다. myPos 있을 때만. */}
-      {activeHike && myPos && (
+      {/* '내 위치로' FAB(우하단) — 브라우징·등반 공통. 앱이 아는 myPos로 카메라 리센터(SDK 위치버튼 대체).
+          시트가 열리면(산 선택) 숨겨 코스 선택 UI에 자리를 양보(디자인 2026-07-23). 추천 카드와도 배타. */}
+      {!selectedMountainId && !showRec && (
         <TouchableOpacity
           style={[s.locFab, { bottom: insets.bottom + TABBAR_CLEARANCE }]}
           activeOpacity={0.85}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="내 위치로 이동"
-          onPress={() =>
-            // 줌인만(≥14) — 더 당겨봤으면 그 줌 유지, 멀리 봤으면 14로. 줌아웃으로 홱 당기지 않음(사용자 조작 존중).
-            mapRef.current?.animateCameraTo({
-              latitude: myPos.lat,
-              longitude: myPos.lng,
-              zoom: Math.max(lastCam.current.zoom, 14),
-            })
-          }
+          onPress={async () => {
+            // 위치를 이미 알면 그 점으로 리센터 — 줌인만(≥14): 더 당겨봤으면 유지, 멀리 봤으면 14로(줌아웃 안 함, 조작 존중).
+            if (myPos) {
+              mapRef.current?.animateCameraTo({ latitude: myPos.lat, longitude: myPos.lng, zoom: Math.max(lastCam.current.zoom, 14) });
+              return;
+            }
+            // 아직 모르면(권한 미허용) 명시적 요청 — 탭이 트리거라 콜드 아님(05 §3). 허용되면 워치 재가동 + 즉시 이동.
+            const p = await Location.requestForegroundPermissionsAsync().catch(() => null);
+            if (!p?.granted) {
+              // 거부 시 침묵하면 버튼이 먹통처럼 보인다(리뷰) — 설정 딥링크로 안내(05 §permission_denied).
+              Alert.alert('위치 권한이 필요해요', '내 위치를 표시하려면 설정에서 위치 접근을 허용해주세요.', [
+                { text: '취소', style: 'cancel' },
+                { text: '설정 열기', onPress: () => Linking.openSettings() },
+              ]);
+              return;
+            }
+            setLocGranted(true);
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }).catch(() => null);
+            if (loc) {
+              setMyPos({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+              mapRef.current?.animateCameraTo({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, zoom: Math.max(lastCam.current.zoom, 14) });
+            }
+          }}
         >
           <Image source={require('../../../assets/images/nav-arrow.png')} style={s.locFabIcon} />
         </TouchableOpacity>
@@ -680,10 +716,11 @@ export default function MapScreen() {
       <BottomSheet
         ref={sheetRef}
         index={-1}
-        snapPoints={['45%']}
+        // 45%→55%: bottomInset을 없애 시트를 바닥에 밀착시키면 하단 ~탭바 높이만큼이 탭바에 가리므로 그만큼 키를 키운다.
+        snapPoints={['55%']}
         enablePanDownToClose
-        // 시트 전체를 탭바 위로 띄운다 → 고정 CTA 푸터가 탭바에 안 가리고 시트 실제 하단에 붙는다(실기기 QA).
-        bottomInset={insets.bottom + TABBAR_CLEARANCE}
+        // 시트는 화면 바닥에 밀착(bottomInset 없음) — 탭바 위 빈 여백을 없앤다('붕 뜬' 느낌 제거, 디자인 2026-07-23).
+        // 플로팅 탭바가 시트 바닥을 덮으므로, 고정 CTA 푸터가 스스로 탭바 높이만큼 아래 여백을 둬 버튼을 그 위로 올린다.
         backgroundStyle={{ backgroundColor: C.surface }}
         handleIndicatorStyle={{ backgroundColor: C.border }}
         footerComponent={renderFooter}
@@ -694,8 +731,8 @@ export default function MapScreen() {
           setSelectedMountainId(null);
         }}
       >
-        {/* 시트가 bottomInset으로 탭바 위에 떠 있으니 여긴 고정 푸터 높이(~92)만 확보 — 마지막 행이 푸터 뒤로 안 가리게 */}
-        <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: 92 }]}>
+        {/* 스크롤 하단에 고정 푸터 높이만큼 여백 — 마지막 행이 푸터(버튼+탭바 클리어런스) 뒤로 안 가리게 */}
+        <BottomSheetScrollView contentContainerStyle={[s.sheet, { paddingBottom: insets.bottom + TABBAR_CLEARANCE + 80 }]}>
           {sheetHeader ? (
             <>
               <Text style={s.name}>{sheetHeader.name}</Text>
@@ -828,11 +865,10 @@ const s = StyleSheet.create({
   },
   captureBtnText: { color: C.onBrand, fontSize: 17, fontWeight: '700' },
   captureBtnDisabled: { opacity: 0.4 },
-  // 고정 CTA 푸터 바 — 시트 배경과 동색 불투명(뒤 코스 행 비침 방지) + 상단 헤어라인. 버튼 marginTop 상쇄.
+  // 고정 CTA 푸터 바 — 시트 배경과 동색 불투명(뒤 코스 행 비침 방지) + 상단 헤어라인. paddingBottom은 인라인(탭바 클리어런스).
   footerWrap: {
     paddingHorizontal: SP.xl,
     paddingTop: SP.sm,
-    paddingBottom: SP.xs,
     backgroundColor: C.surface,
     borderTopWidth: 1,
     borderTopColor: C.border,
@@ -916,7 +952,7 @@ const s = StyleSheet.create({
   recCta: { fontSize: 14, color: C.success, fontWeight: '600', marginTop: SP.xs },
   recClose: { padding: SP.xs },
   recCloseText: { fontSize: 16, color: C.faint },
-  // '내 위치로' FAB — glass 원형, 지도 내비 화살표와 동일 아이콘. 탭바 clearance 위 우하단(추천 카드와 배타: showRec는 !activeHike).
+  // '내 위치로' FAB — glass 원형, 지도 내비 화살표와 동일 아이콘. 탭바 clearance 위 우하단. 시트 열림·추천 카드일 땐 숨김.
   locFab: {
     position: 'absolute',
     right: SP.lg,
