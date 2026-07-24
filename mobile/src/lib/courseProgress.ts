@@ -6,6 +6,10 @@ import { haversineM } from './geo.ts';
 const R = 6371000;
 const DEG_M = (Math.PI / 180) * R; // 위도 1도당 미터(≈111195). 경도는 ×cos(lat)
 
+// 코스에서 이 거리 이상 벗어나면 projectOnCourse가 엉뚱한 세그먼트에 스냅해 진행률이 무의미해진다(집에서 시작·GPS 튐).
+// 지도 배너와 잠금화면 위젯이 공유하는 '진행률 표시 유효' 상한 — 여기 하나로 관리해 두 경로가 드리프트하지 않게(SSOT).
+export const OFF_COURSE_LIMIT_M = 1000;
+
 export type CoursePathIndex = {
   coords: [number, number][]; // [lng, lat] — 코스 path.coordinates 원본
   cum: number[]; // cum[i] = 시작점부터 정점 i까지 경로 거리(m)

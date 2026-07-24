@@ -56,6 +56,27 @@ test('ETA 미표시: 외삽이 16h 초과(페이스 비현실)', () => {
   assert.equal(s.etaLabel, null);
 });
 
+test('코스 이탈(offCourseM>1000): 투영 무의미 → 0% · 0.0km · 잔여=전체 · 도착·ETA 없음', () => {
+  // 실기기 버그: 남산 밖(집)에서 시작했는데 projectOnCourse가 엉뚱한 세그먼트에 스냅(fraction 0.96)해
+  // 위젯이 96%·1.4km라고 떴다. 이탈이면 '코스 진입 전'으로 취급해야 한다.
+  const s = formatHikeWidget({
+    startedAtMs: START,
+    nowMs: START + 3_600_000,
+    progress: prog({ offCourseM: 3200, fraction: 0.96, progressM: 2880, remainingM: 120 }),
+    altitude: 40,
+  });
+  assert.equal(s.progressPct, 0);
+  assert.equal(s.doneKm, '0.0');
+  assert.equal(s.remainingKm, '3.0'); // totalM 3000 전체가 잔여
+  assert.equal(s.arrived, false);
+  assert.equal(s.etaLabel, null);
+});
+
+test('코스 이탈 경계: offCourseM 1000은 아직 유효(정상 진행 표시)', () => {
+  const s = formatHikeWidget({ startedAtMs: START, nowMs: START, progress: prog({ offCourseM: 1000, fraction: 0.5 }), altitude: null });
+  assert.equal(s.progressPct, 50); // >1000만 이탈 — 1000 경계는 정상
+});
+
 test('고도: 있으면 반올림 m, 없으면 null', () => {
   assert.equal(formatHikeWidget({ startedAtMs: START, nowMs: START, progress: prog(), altitude: 511.6 }).altitudeLabel, '512m');
   assert.equal(formatHikeWidget({ startedAtMs: START, nowMs: START, progress: prog(), altitude: null }).altitudeLabel, null);

@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import { api } from '@/lib/api';
 import { CoursesSchema, MountainSchema, type Course } from '@/lib/schemas';
 import { FETCH_TILE_Z, haversineM, lngLatToTile, tileToBboxWithMargin } from '@/lib/geo';
-import { buildCoursePath, projectOnCourse } from '@/lib/courseProgress';
+import { buildCoursePath, OFF_COURSE_LIMIT_M, projectOnCourse } from '@/lib/courseProgress';
 import { cacheCourses, clearHike, getCachedCourses, setHikeStartAltitude, startHike } from '@/lib/outbox';
 import {
   DIFFICULTY_COLOR,
@@ -240,7 +240,7 @@ export default function MapScreen() {
     if (arrived) return 100;
     if (!myPos || !courseIndex) return null;
     const p = projectOnCourse(courseIndex, myPos.lat, myPos.lng);
-    return p.offCourseM > 1000 ? null : Math.round(p.fraction * 100);
+    return p.offCourseM > OFF_COURSE_LIMIT_M ? null : Math.round(p.fraction * 100);
   }, [arrived, myPos, courseIndex]);
 
   // rank15 (05 §9): 빈 상태 = 도화지. 완등 0 신규 유저에게 시작 코스 추천 카드 1장.
